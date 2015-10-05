@@ -26,9 +26,9 @@
 /** @file
  * @short Upipe buffer module
  *
- * The buffer pipe directly forwards the input uref if it can. When the output
- * upump is blocked by the output pipe, the buffer pipe still accepts the input
- * uref until the maximum size is reached.
+ * The buffer pipe forwards the input uref if it can. When the output
+ * upump is blocked by the output pipe or by the user (see upipe_buffer_block),
+ * the buffer pipe still accepts the input until max size is reached.
  */
 
 #ifndef _UPIPE_MODULES_UPIPE_BUFFER_H_
@@ -46,56 +46,49 @@ extern "C" {
 enum upipe_buffer_command {
     UPIPE_BUFFER_SENTINEL = UPIPE_CONTROL_LOCAL,
 
-    /** set the maximum retained size in octet (uint64_t) */
+    /** get the current buffer size */
+    UPIPE_BUFFER_GET_SIZE,
+    /** set the maximum buffer size */
     UPIPE_BUFFER_SET_MAX_SIZE,
-    /** get the maximum retained size in octet (uint64_t *) */
+    /** get the maximum buffer size */
     UPIPE_BUFFER_GET_MAX_SIZE,
-    /** set the low limit in octet (uint64_t) */
-    UPIPE_BUFFER_SET_LOW,
-    /** get the low limit in octet (uint64_t *) */
-    UPIPE_BUFFER_GET_LOW,
-    /** set the high limit in octet (uint64_t) */
-    UPIPE_BUFFER_SET_HIGH,
-    /** get the high limit in octet (uint64_t *) */
-    UPIPE_BUFFER_GET_HIGH,
+    /** enable/disable the output of the buffer pipe */
+    UPIPE_BUFFER_BLOCK,
 };
 
-/** @This converts @ref upipe_buffer_command to a string.
+/** @This converts the buffer pipe command to a string.
  *
- * @param command command to convert
- * @return a string or NULL if invalid
+ * @param cmd command to convert
+ * @return a string or NULL if cmd is invalid
  */
-static inline const char *upipe_buffer_command_str(int command)
+static inline const char *upipe_buffer_command_str(int cmd)
 {
-    switch ((enum upipe_buffer_command)command) {
+    switch ((enum upipe_buffer_command)cmd) {
+    UBASE_CASE_TO_STR(UPIPE_BUFFER_GET_SIZE);
     UBASE_CASE_TO_STR(UPIPE_BUFFER_SET_MAX_SIZE);
     UBASE_CASE_TO_STR(UPIPE_BUFFER_GET_MAX_SIZE);
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_SET_LOW);
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_GET_LOW);
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_SET_HIGH);
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_GET_HIGH);
+    UBASE_CASE_TO_STR(UPIPE_BUFFER_BLOCK);
     case UPIPE_BUFFER_SENTINEL: break;
     }
     return NULL;
 }
 
-/** @This gets the maximum retained size in octet.
+/** @This gets the current buffer size.
  *
  * @param upipe description structure of the pipe
- * @param max_size_p a pointer to the size
+ * @param size_p pointer filled with the buffer size.
  * @return an error code
  */
-static inline int upipe_buffer_get_max_size(struct upipe *upipe,
-                                            uint64_t *max_size_p)
+static inline int upipe_buffer_get_size(struct upipe *upipe, uint64_t *size_p)
 {
-    return upipe_control(upipe, UPIPE_BUFFER_GET_MAX_SIZE,
-                         UPIPE_BUFFER_SIGNATURE, max_size_p);
+    return upipe_control(upipe, UPIPE_BUFFER_GET_SIZE,
+                         UPIPE_BUFFER_SIGNATURE, size_p);
 }
 
-/** @This sets the maximum retained size in octet.
+/** @This sets the maximum buffer size.
  *
  * @param upipe description structure of the pipe
- * @param max_size the maximum size in octet
+ * @param max_size maximum buffer size in bytes
  * @return an error code
  */
 static inline int upipe_buffer_set_max_size(struct upipe *upipe,
@@ -105,103 +98,29 @@ static inline int upipe_buffer_set_max_size(struct upipe *upipe,
                          UPIPE_BUFFER_SIGNATURE, max_size);
 }
 
-/** @This sets the low limit size in octet.
+/** @This gets the maximum buffer size.
  *
  * @param upipe description structure of the pipe
- * @param low_limit the low limit size in octet
+ * @param max_size_p pointer filled with the maximum buffer size in bytes
  * @return an error code
  */
-static inline int upipe_buffer_set_low_limit(struct upipe *upipe,
-                                             uint64_t low_limit)
+static inline int upipe_buffer_get_max_size(struct upipe *upipe,
+                                            uint64_t *max_size_p)
 {
-    return upipe_control(upipe, UPIPE_BUFFER_SET_LOW,
-                         UPIPE_BUFFER_SIGNATURE, low_limit);
+    return upipe_control(upipe, UPIPE_BUFFER_GET_MAX_SIZE,
+                         UPIPE_BUFFER_SIGNATURE, max_size_p);
 }
 
-/** @This gets the low limit size in octet.
+/** @This blocks or unblocks the output of the buffer pipe.
  *
  * @param upipe description structure of the pipe
- * @param low_limit_p a point to the low limit size in octet
+ * @param block block/unblock the output
  * @return an error code
  */
-static inline int upipe_buffer_get_low_limit(struct upipe *upipe,
-                                             uint64_t *low_limit_p)
+static inline int upipe_buffer_block(struct upipe *upipe, bool block)
 {
-    return upipe_control(upipe, UPIPE_BUFFER_GET_LOW,
-                         UPIPE_BUFFER_SIGNATURE, low_limit_p);
-}
-
-/** @This sets the high limit size in octet.
- *
- * @param upipe description structure of the pipe
- * @param high_limit the high limit size in octet
- * @return an error code
- */
-static inline int upipe_buffer_set_high_limit(struct upipe *upipe,
-                                              uint64_t high_limit)
-{
-    return upipe_control(upipe, UPIPE_BUFFER_SET_HIGH,
-                         UPIPE_BUFFER_SIGNATURE, high_limit);
-}
-
-/** @This gets the high limit size in octet.
- *
- * @param upipe description structure of the pipe
- * @param high_limit_p a point to the high limit size in octet
- * @return an error code
- */
-static inline int upipe_buffer_get_high_limit(struct upipe *upipe,
-                                              uint64_t *high_limit_p)
-{
-    return upipe_control(upipe, UPIPE_BUFFER_GET_HIGH,
-                         UPIPE_BUFFER_SIGNATURE, high_limit_p);
-}
-
-/** @This is the buffer pipe states. */
-enum upipe_buffer_state {
-    /** under the low limit */
-    UPIPE_BUFFER_LOW,
-    /** between low and high limit */
-    UPIPE_BUFFER_MIDDLE,
-    /** above high limit */
-    UPIPE_BUFFER_HIGH,
-};
-
-/** @This converts @ref upipe_buffer_state to a string.
- *
- * @param s buffer state
- * @return a string or NULL if invalid
- */
-static inline const char *upipe_buffer_state_str(enum upipe_buffer_state s)
-{
-    switch (s) {
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_LOW);
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_MIDDLE);
-    UBASE_CASE_TO_STR(UPIPE_BUFFER_HIGH);
-    }
-    return NULL;
-}
-
-/** @This extends @ref uprobe_event with specific buffer events. */
-enum upipe_buffer_event {
-    UPROBE_BUFFER_SENTINEL = UPROBE_LOCAL,
-
-    /** upipe buffer state changed */
-    UPROBE_BUFFER_UPDATE,
-};
-
-/** @This converts @ref upipe_buffer_event to a string.
- *
- * @param event event to convert
- * @return a string or NULL if invalid
- */
-static inline const char *upipe_buffer_event_str(int event)
-{
-    switch ((enum upipe_buffer_event)event) {
-    UBASE_CASE_TO_STR(UPROBE_BUFFER_UPDATE);
-    case UPROBE_BUFFER_SENTINEL: break;
-    }
-    return NULL;
+    return upipe_control(upipe, UPIPE_BUFFER_BLOCK,
+                         UPIPE_BUFFER_SIGNATURE, block);
 }
 
 /** @This return the buffer pipe manager.

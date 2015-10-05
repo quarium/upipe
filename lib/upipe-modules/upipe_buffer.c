@@ -26,16 +26,17 @@
 /** @file
  * @short Upipe buffer module
  *
- * The buffer pipe directly forwards the input uref if it can. When the output
- * upump is blocked by the output pipe, the buffer pipe still accepts the input
- * uref until the maximum size is reached.
+ * The buffer pipe forwards the input uref if it can. When the output
+ * upump is blocked by the output pipe or by the user (see upipe_buffer_block),
+ * the buffer pipe still accepts the input until max size is reached.
  */
 
-
 #include <upipe/uclock.h>
+#include <upipe/ueventfd.h>
 #include <upipe/uref_clock.h>
 #include <upipe/uref_block.h>
 #include <upipe/uref_block_flow.h>
+#include <upipe/uref_uri.h>
 #include <upipe/upipe_helper_upipe.h>
 #include <upipe/upipe_helper_urefcount.h>
 #include <upipe/upipe_helper_void.h>
@@ -45,20 +46,10 @@
 #include <upipe/upipe_helper_output.h>
 #include <upipe-modules/upipe_buffer.h>
 
-/** @internal @This throws an update event.
- *
- * @param upipe description structure of the pipe
- * @param old_state the previous state
- * @param new_state the new state
- * @return an error code
- */
-static inline int upipe_buffer_throw_update(struct upipe *upipe,
-                                            enum upipe_buffer_state old_state,
-                                            enum upipe_buffer_state new_state)
-{
-    return upipe_throw(upipe, UPROBE_BUFFER_UPDATE, UPIPE_BUFFER_SIGNATURE,
-                       old_state, new_state);
-}
+#define DEFAULT_MAX_SIZE        (1024 * 1024)
+
+/** @hidden */
+static void upipe_buffer_free(struct urefcount *urefcount);
 
 /** @internal @This is the private context of a buffer pipe. */
 struct upipe_buffer {
@@ -66,8 +57,12 @@ struct upipe_buffer {
     struct upipe upipe;
     /** urefcount structure for helper */
     struct urefcount urefcount;
+    /** urefcount structure for real refcount */
+    struct urefcount urefcount_real;
     /** upump_mgr pointer for helper */
     struct upump_mgr *upump_mgr;
+    /** ueventfd for upump */
+    struct ueventfd ueventfd;
     /** upump pointer for helper */
     struct upump *upump;
     /** upipe pointer for output helper */
@@ -86,21 +81,15 @@ struct upipe_buffer {
     unsigned int max_urefs;
     /** uchain structure for input helper to store blockers */
     struct uchain blockers;
-    /** total size of all the pending urefs */
-    size_t size;
-    /** max buffered size */
-    uint64_t max_size;
-    /** low limit */
-    uint64_t low_limit;
-    /** high limit */
-    uint64_t high_limit;
     /** list of buffered urefs */
-    struct uchain buffered;
-    /** last received dts */
-    uint64_t last_dts;
-    /** buffer state */
-    enum upipe_buffer_state state;
+    struct uchain buffer;
+    /** maximum buffer size before blocking the input */
+    uint64_t max_size;
+    /** buffer size */
+    uint64_t size;
 };
+
+UBASE_FROM_TO(upipe_buffer, urefcount, urefcount_real, urefcount_real);
 
 /** @hidden */
 static bool upipe_buffer_process(struct upipe *upipe,
@@ -108,7 +97,7 @@ static bool upipe_buffer_process(struct upipe *upipe,
                                  struct upump **upump_p);
 
 UPIPE_HELPER_UPIPE(upipe_buffer, upipe, UPIPE_BUFFER_SIGNATURE);
-UPIPE_HELPER_UREFCOUNT(upipe_buffer, urefcount, upipe_buffer_free);
+UPIPE_HELPER_UREFCOUNT(upipe_buffer, urefcount, upipe_buffer_no_ref);
 UPIPE_HELPER_VOID(upipe_buffer);
 UPIPE_HELPER_UPUMP_MGR(upipe_buffer, upump_mgr);
 UPIPE_HELPER_UPUMP(upipe_buffer, upump, upump_mgr);
@@ -122,7 +111,7 @@ UPIPE_HELPER_OUTPUT(upipe_buffer, output, flow_def, output_state, request_list);
  * @param uprobe structure used to raise events
  * @param signature signature of the pipe allocator
  * @param args optional arguments
- * @return an allocated pipe.
+ * @return an allocated pipe
  */
 static struct upipe *upipe_buffer_alloc(struct upipe_mgr *mgr,
                                         struct uprobe *uprobe,
@@ -132,105 +121,57 @@ static struct upipe *upipe_buffer_alloc(struct upipe_mgr *mgr,
     struct upipe *upipe = upipe_buffer_alloc_void(mgr, uprobe, signature, args);
     if (unlikely(upipe == NULL))
         return NULL;
-    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
 
     upipe_buffer_init_urefcount(upipe);
     upipe_buffer_init_upump_mgr(upipe);
     upipe_buffer_init_upump(upipe);
     upipe_buffer_init_input(upipe);
     upipe_buffer_init_output(upipe);
-    ulist_init(&upipe_buffer->buffered);
+
+    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
+    urefcount_init(&upipe_buffer->urefcount_real, upipe_buffer_free);
+    ulist_init(&upipe_buffer->buffer);
+    ueventfd_init(&upipe_buffer->ueventfd, false);
+    upipe_buffer->max_size = DEFAULT_MAX_SIZE;
     upipe_buffer->size = 0;
-    upipe_buffer->max_size = 0;
-    upipe_buffer->low_limit = 0;
-    upipe_buffer->high_limit = 0;
-    upipe_buffer->last_dts = 0;
-    upipe_buffer->state = UPIPE_BUFFER_LOW;
 
     upipe_throw_ready(upipe);
 
     return upipe;
 }
 
-/** @internal @This free a buffer pipe.
+/** @internal @This frees a buffer pipe.
  *
  * @param upipe description structure of the pipe
  */
-static void upipe_buffer_free(struct upipe *upipe)
+static void upipe_buffer_free(struct urefcount *urefcount)
 {
-    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
+    struct upipe_buffer *upipe_buffer =
+        upipe_buffer_from_urefcount_real(urefcount);
+    struct upipe *upipe = upipe_buffer_to_upipe(upipe_buffer);
 
     upipe_throw_dead(upipe);
 
     struct uchain *uchain;
-    while ((uchain = ulist_pop(&upipe_buffer->buffered)) != NULL)
+    while ((uchain = ulist_pop(&upipe_buffer->buffer)) != NULL)
         uref_free(uref_from_uchain(uchain));
 
+    ueventfd_clean(&upipe_buffer->ueventfd);
     upipe_buffer_clean_output(upipe);
     upipe_buffer_clean_input(upipe);
     upipe_buffer_clean_upump(upipe);
     upipe_buffer_clean_upump_mgr(upipe);
     upipe_buffer_clean_urefcount(upipe);
+    urefcount_clean(&upipe_buffer->urefcount_real);
     upipe_buffer_free_void(upipe);
 }
 
-/** @internal @This gets the duration of the buffer.
- * The duration is the difference between the last received uref DTS and
- * the first retained uref DTS.
- *
- * @param upipe description structure of the pipe
- * @param duration_p a pointer filled with the duration
- * @return an error code
+/** @internal @This is called when there is no external reference to the pipe.
  */
-static int upipe_buffer_get_duration(struct upipe *upipe, uint64_t *duration_p)
+static void upipe_buffer_no_ref(struct upipe *upipe)
 {
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-
-    struct uchain *uchain = ulist_peek(&upipe_buffer->buffered);
-    if (!uchain) {
-        *duration_p = 0;
-        return UBASE_ERR_NONE;
-    }
-    struct uref *uref = uref_from_uchain(uchain);
-    uint64_t date;
-    if (ubase_check(uref_clock_get_dts_prog(uref, &date)) ||
-        ubase_check(uref_clock_get_dts_sys(uref, &date))) {
-        *duration_p = upipe_buffer->last_dts - date;
-        return UBASE_ERR_NONE;
-    }
-    return UBASE_ERR_INVALID;
-}
-
-/** @internal @This checks if the buffer pipe state has changed.
- * If the buffer pipe state has changed then it throws an update event
- * (see @ref upipe_buffer_throw_update).
- *
- * @param upipe description structure of the pipe
- */
-static void upipe_buffer_update(struct upipe *upipe)
-{
-    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    enum upipe_buffer_state old_state = upipe_buffer->state;
-    enum upipe_buffer_state new_state;
-
-    if (upipe_buffer->low_limit &&
-        upipe_buffer->size < upipe_buffer->low_limit)
-        new_state = UPIPE_BUFFER_LOW;
-    else if (upipe_buffer->high_limit &&
-             upipe_buffer->size >= upipe_buffer->high_limit)
-        new_state = UPIPE_BUFFER_HIGH;
-    else
-        new_state = UPIPE_BUFFER_MIDDLE;
-
-    if (new_state != old_state) {
-        upipe_buffer->state = new_state;
-        upipe_buffer_throw_update(upipe, old_state, new_state);
-    }
-
-    uint64_t duration;
-    if (ubase_check(upipe_buffer_get_duration(upipe, &duration)))
-        upipe_verbose_va(upipe, "duration: %zums",
-                         duration / (UCLOCK_FREQ / 1000));
+    urefcount_release(&upipe_buffer->urefcount_real);
 }
 
 /** @internal @This is called when output pipe need some data.
@@ -242,51 +183,36 @@ static void upipe_buffer_worker(struct upump *upump)
     struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
 
-    struct uchain *uchain = ulist_pop(&upipe_buffer->buffered);
-    if (!uchain)
-        return;
+    ueventfd_read(&upipe_buffer->ueventfd);
 
-    struct uref *uref = uref_from_uchain(uchain);
-    size_t block_size;
-    ubase_assert(uref_block_size(uref, &block_size));
-    assert(upipe_buffer->size >= block_size);
-    upipe_buffer->size -= block_size;
-    upipe_buffer_update(upipe);
+    struct uref *uref = uref_from_uchain(ulist_pop(&upipe_buffer->buffer));
+    size_t size = 0;
+    uref_block_size(uref, &size);
+    upipe_buffer->size -= size;
 
-    upipe_buffer_output(upipe, uref, &upipe_buffer->upump);
+    if (likely(!ulist_empty(&upipe_buffer->buffer)))
+        ueventfd_write(&upipe_buffer->ueventfd);
     if (upipe_buffer_output_input(upipe))
         upipe_buffer_unblock_input(upipe);
+    upipe_buffer_output(upipe, uref, &upipe_buffer->upump);
 }
 
-/** @internal @This allocates the upump if it's not.
+/** @internal @This sets the flow format for real of the buffer pipe.
  *
  * @param upipe description structure of the pipe
+ * @param flow_def the flow format to set
  * @return an error code
  */
-static int upipe_buffer_upump_check(struct upipe *upipe)
+static void upipe_buffer_set_flow_def_real(struct upipe *upipe,
+                                           struct uref *flow_def)
 {
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
 
-    int ret = upipe_buffer_check_upump_mgr(upipe);
-    if (!ubase_check(ret))
-        return ret;
-    if (unlikely(upipe_buffer->upump_mgr == NULL)) {
-        upipe_err(upipe, "no upump manager");
-        return UBASE_ERR_INVALID;
+    if (likely(upipe_buffer->flow_def != NULL)) {
+        uref_free(flow_def);
+        return;
     }
-
-    if (upipe_buffer->upump)
-        return UBASE_ERR_NONE;
-
-    struct upump *upump =
-        upump_alloc_idler(upipe_buffer->upump_mgr, upipe_buffer_worker, upipe,
-                          upipe->refcount);
-    if (unlikely(upump == NULL))
-        return UBASE_ERR_ALLOC;
-
-    upipe_buffer_set_upump(upipe, upump);
-    upump_start(upump);
-    return UBASE_ERR_NONE;
+    upipe_buffer_store_flow_def(upipe, flow_def);
 }
 
 /** @internal @This processes an input uref.
@@ -301,39 +227,14 @@ static bool upipe_buffer_process(struct upipe *upipe,
                                  struct upump **upump_p)
 {
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    int ret;
 
-    size_t block_size;
-    ret = uref_block_size(uref, &block_size);
-    if (!ubase_check(ret)) {
-        upipe_err(upipe, "fail to get block size, dropping...");
-        uref_free(uref);
-        return true;
-    }
-
-    if (block_size + upipe_buffer->size > upipe_buffer->max_size)
+    size_t size = 0;
+    uref_block_size(uref, &size);
+    if (upipe_buffer->size + size > upipe_buffer->max_size)
         return false;
 
-    ret = upipe_buffer_upump_check(upipe);
-    if (!ubase_check(ret)) {
-        upipe_err(upipe, "fail to allocate upump, dropping...");
-        uref_free(uref);
-        return true;
-    }
-
-    uint64_t date;
-    if (ubase_check(uref_clock_get_dts_prog(uref, &date)) ||
-        ubase_check(uref_clock_get_dts_sys(uref, &date))) {
-        if (date < upipe_buffer->last_dts)
-            upipe_warn(upipe, "uref DTS is in the past");
-        upipe_buffer->last_dts = date;
-    }
-    else
-        upipe_warn(upipe, "uref has no DTS");
-
-    upipe_buffer->size += block_size;
-    ulist_add(&upipe_buffer->buffered, uref_to_uchain(uref));
-    upipe_buffer_update(upipe);
+    upipe_buffer->size += size;
+    ulist_add(&upipe_buffer->buffer, uref_to_uchain(uref));
     return true;
 }
 
@@ -347,11 +248,21 @@ static void upipe_buffer_input(struct upipe *upipe,
                                struct uref *uref,
                                struct upump **upump_p)
 {
+    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
+
+    const char *def;
+    if (unlikely(ubase_check(uref_flow_get_def(uref, &def)))) {
+        upipe_buffer_set_flow_def_real(upipe, uref);
+        return;
+    }
+
     if (!upipe_buffer_output_input(upipe) ||
         !upipe_buffer_process(upipe, uref, upump_p)) {
         upipe_buffer_hold_input(upipe, uref);
         upipe_buffer_block_input(upipe, upump_p);
     }
+
+    ueventfd_write(&upipe_buffer->ueventfd);
 }
 
 /** @internal @This sets the flow format of the buffer pipe.
@@ -360,8 +271,7 @@ static void upipe_buffer_input(struct upipe *upipe,
  * @param flow_def the flow format to set
  * @return an error code
  */
-static int upipe_buffer_set_flow_def(struct upipe *upipe,
-                                     struct uref *flow_def)
+static int upipe_buffer_set_flow_def(struct upipe *upipe, struct uref *flow_def)
 {
     int ret = uref_flow_match_def(flow_def, "block.");
     if (!ubase_check(ret))
@@ -373,92 +283,49 @@ static int upipe_buffer_set_flow_def(struct upipe *upipe,
         return UBASE_ERR_ALLOC;
     }
 
-    upipe_buffer_store_flow_def(upipe, flow_def_dup);
+    upipe_input(upipe, flow_def_dup, NULL);
     return UBASE_ERR_NONE;
 }
 
-/** @internal @This gets the maximum retain size of the buffer pipe.
+/** @internal @This sets the maximum buffer size.
  *
  * @param upipe description structure of the pipe
- * @param max_size_p a pointer filled with the maximum size
+ * @param max_size maximum buffer size in bytes
  * @return an error code
  */
-static int _upipe_buffer_get_max_size(struct upipe *upipe,
-                                      uint64_t *max_size_p)
-{
-    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    if (max_size_p)
-        *max_size_p = upipe_buffer->max_size;
-    return UBASE_ERR_NONE;
-}
-
-/** @internal @This sets the maximun retain size of the buffer pipe.
- * The buffer pipe will retain at most @tt {max_size} bytes before blocking
- * the input upump.
- *
- * @param upipe description structure of the pipe
- * @param max_size the maximum size to set
- * @return an error code
- */
-static int _upipe_buffer_set_max_size(struct upipe *upipe,
-                                      size_t max_size)
+static int _upipe_buffer_set_max_size(struct upipe *upipe, uint64_t max_size)
 {
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
     upipe_buffer->max_size = max_size;
     return UBASE_ERR_NONE;
 }
 
-/** @internal @This gets the low limit of the buffer pipe.
+/** @internal @This gets the maximum buffer size.
  *
  * @param upipe description structure of the pipe
- * @param low_limit_p a pointer filled with the low limit
+ * @param max_size_p pointer filled with the maximum buffer size in bytes
  * @return an error code
  */
-static int _upipe_buffer_get_low(struct upipe *upipe, uint64_t *low_limit_p)
+static int _upipe_buffer_get_max_size(struct upipe *upipe,
+                                      uint64_t *max_size_p)
 {
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    if (low_limit_p)
-        *low_limit_p = upipe_buffer->low_limit;
+    if (likely(max_size_p))
+        *max_size_p = upipe_buffer->max_size;
     return UBASE_ERR_NONE;
 }
 
-/** @internal @This sets the low limit of the buffer pipe.
+/** @internal @This gets the current size of the buffer.
  *
  * @param upipe description structure of the pipe
- * @param low_limit the low limit to set
+ * @param size_p pointer filled with the current buffer size in bytes
  * @return an error code
  */
-static int _upipe_buffer_set_low(struct upipe *upipe, uint64_t low_limit)
+static int _upipe_buffer_get_size(struct upipe *upipe, uint64_t *size_p)
 {
     struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    upipe_buffer->low_limit = low_limit;
-    return UBASE_ERR_NONE;
-}
-
-/** @internal @This gets the high limit of the buffer pipe.
- *
- * @param upipe description structure of the pipe
- * @param high_limit_p a pointer filled with the high limit
- * @return an error code
- */
-static int _upipe_buffer_get_high(struct upipe *upipe, uint64_t *high_limit_p)
-{
-    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    if (high_limit_p)
-        *high_limit_p = upipe_buffer->high_limit;
-    return UBASE_ERR_NONE;
-}
-
-/** @internal @This sets the high limit of the buffer pipe.
- *
- * @param upipe description structure of the pipe
- * @param high_limit the high limit to set
- * @return an error code
- */
-static int _upipe_buffer_set_high(struct upipe *upipe, uint64_t high_limit)
-{
-    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
-    upipe_buffer->high_limit = high_limit;
+    if (likely(size_p))
+        *size_p = upipe_buffer->size;
     return UBASE_ERR_NONE;
 }
 
@@ -469,9 +336,9 @@ static int _upipe_buffer_set_high(struct upipe *upipe, uint64_t high_limit)
  * @param args arguments of the command
  * @return an error code
  */
-static int upipe_buffer_control(struct upipe *upipe,
-                                int command,
-                                va_list args)
+static int _upipe_buffer_control(struct upipe *upipe,
+                                 int command,
+                                 va_list args)
 {
     switch (command) {
     case UPIPE_ATTACH_UPUMP_MGR:
@@ -503,38 +370,71 @@ static int upipe_buffer_control(struct upipe *upipe,
         return upipe_buffer_set_output(upipe, output);
     }
 
-    case UPIPE_BUFFER_GET_MAX_SIZE: {
-        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE)
-        uint64_t *max_size_p = va_arg(args, uint64_t *);
-        return _upipe_buffer_get_max_size(upipe, max_size_p);
-    }
     case UPIPE_BUFFER_SET_MAX_SIZE: {
-        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE)
+        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE);
         uint64_t max_size = va_arg(args, uint64_t);
         return _upipe_buffer_set_max_size(upipe, max_size);
     }
-    case UPIPE_BUFFER_GET_LOW: {
-        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE)
-        uint64_t *low_limit_p = va_arg(args, uint64_t *);
-        return _upipe_buffer_get_low(upipe, low_limit_p);
+    case UPIPE_BUFFER_GET_MAX_SIZE: {
+        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE);
+        uint64_t *max_size_p = va_arg(args, uint64_t *);
+        return _upipe_buffer_get_max_size(upipe, max_size_p);
     }
-    case UPIPE_BUFFER_SET_LOW: {
-        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE)
-        uint64_t low_limit = va_arg(args, uint64_t);
-        return _upipe_buffer_set_low(upipe, low_limit);
-    }
-    case UPIPE_BUFFER_GET_HIGH: {
-        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE)
-        uint64_t *high_limit_p = va_arg(args, uint64_t *);
-        return _upipe_buffer_get_high(upipe, high_limit_p);
-    }
-    case UPIPE_BUFFER_SET_HIGH: {
-        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE)
-        uint64_t high_limit = va_arg(args, uint64_t);
-        return _upipe_buffer_set_high(upipe, high_limit);
+    case UPIPE_BUFFER_GET_SIZE: {
+        UBASE_SIGNATURE_CHECK(args, UPIPE_BUFFER_SIGNATURE);
+        uint64_t *size_p = va_arg(args, uint64_t *);
+        return _upipe_buffer_get_size(upipe, size_p);
     }
     }
     return UBASE_ERR_UNHANDLED;
+}
+
+/** @internal @This allocates the upump if it's not.
+ *
+ * @param upipe description structure of the pipe
+ * @return an error code
+ */
+static int upipe_buffer_check(struct upipe *upipe)
+{
+    struct upipe_buffer *upipe_buffer = upipe_buffer_from_upipe(upipe);
+
+    UBASE_RETURN(upipe_buffer_check_upump_mgr(upipe));
+    if (unlikely(upipe_buffer->upump_mgr == NULL)) {
+        upipe_err(upipe, "no upump manager");
+        return UBASE_ERR_INVALID;
+    }
+
+    if (unlikely(upipe_buffer->upump == NULL)) {
+        struct upump *upump =
+            ueventfd_upump_alloc(&upipe_buffer->ueventfd,
+                                 upipe_buffer->upump_mgr,
+                                 upipe_buffer_worker, upipe,
+                                 upipe->refcount);
+        if (unlikely(upump == NULL)) {
+            upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
+            return UBASE_ERR_UPUMP;
+        }
+        upipe_buffer_set_upump(upipe, upump);
+        upump_start(upump);
+        if (likely(!ulist_empty(&upipe_buffer->buffer)))
+            ueventfd_write(&upipe_buffer->ueventfd);
+    }
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This dispatches the control commands and checks the pump.
+ *
+ * @param upipe description structure of the pipe
+ * @param command type of command to dispatch
+ * @param args arguments of the command
+ * @return an error code
+ */
+static int upipe_buffer_control(struct upipe *upipe,
+                                int command,
+                                va_list args)
+{
+    UBASE_RETURN(_upipe_buffer_control(upipe, command, args));
+    return upipe_buffer_check(upipe);
 }
 
 /** @internal @This is the static buffer pipe manager. */
@@ -542,7 +442,7 @@ static struct upipe_mgr upipe_buffer_mgr = {
     .refcount = NULL,
     .signature = UPIPE_BUFFER_SIGNATURE,
     .upipe_command_str = upipe_buffer_command_str,
-    .upipe_event_str = upipe_buffer_event_str,
+    .upipe_event_str = NULL,
     .upipe_alloc = upipe_buffer_alloc,
     .upipe_input = upipe_buffer_input,
     .upipe_control = upipe_buffer_control,
