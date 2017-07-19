@@ -76,4 +76,5 @@ myinclude_HEADERS = \
 	upipe_dtsdi.h \
 	upipe_void_source.h \
 	upipe_grid.h \
+	upipe_video_blank.h \
 	$(NULL)
