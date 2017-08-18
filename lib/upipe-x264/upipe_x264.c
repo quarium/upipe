@@ -498,8 +498,13 @@ static bool upipe_x264_open(struct upipe *upipe, int width, int height)
             return false;
     }
 
+    int overscan = params->vui.i_overscan;
     /* sync pipe parameters with internal copy */
     x264_encoder_parameters(upipe_x264->encoder, params);
+    if (params->vui.i_overscan != overscan) {
+        upipe_warn_va(upipe, "fail to set overscan to %i", overscan);
+        params->vui.i_overscan = overscan;
+    }
 
     /* flow definition */
     struct uref *flow_def_attr = upipe_x264_alloc_flow_def_attr(upipe);
