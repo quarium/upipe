@@ -32,7 +32,7 @@ extern "C" {
 #include <upipe/upipe.h>
 #include <upipe-ts/upipe_ts_demux.h>
 
-#define UPIPE_TS_PATD_SIGNATURE UBASE_FOURCC('t','s','1','d')
+#define UPIPE_TS_PATD_SIGNATURE UBASE_FOURCC('t','s','0','d')
 
 /** @This extends upipe_command with specific commands for ts patd. */
 enum upipe_ts_patd_command {
