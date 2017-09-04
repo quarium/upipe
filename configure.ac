@@ -80,7 +80,7 @@ AM_CONDITIONAL(HAVE_X86_ASM, test -n "${YASM}" -a -n "${YASMFLAGS}")
 # add -prefer-non-pic so libtool doesn't add -fPIC, which yasm doesn't understand
 YASMFLAGS="${YASMFLAGS} -DPIC -prefer-non-pic -Pconfig.asm -I\$(top_builddir)/x86 -I\$(top_srcdir)/x86"
 
-WARN_FLAGS="-Wall -Wextra -Wno-unused -Wno-unused-parameter -Wno-sign-compare -Wmissing-declarations -Wwrite-strings -Wredundant-decls -Wundef -Wmissing-include-dirs"
+WARN_FLAGS="-Wall -Wextra -Wno-unused -Wno-unused-parameter -Wmissing-declarations -Wwrite-strings -Wredundant-decls -Wundef -Wmissing-include-dirs"
 AC_SUBST([AM_CFLAGS], ["$WARN_FLAGS -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition"])
 AC_SUBST([AM_CXXFLAGS], ["$WARN_FLAGS"])
 AC_SUBST(YASMFLAGS)
