@@ -122,26 +122,34 @@ static inline int ubuf_block_size(struct ubuf *ubuf, size_t *size_p)
  * or -1 for the end of the block (may be NULL)
  * @return corresponding chained ubuf
  */
-static inline struct ubuf *ubuf_block_get(struct ubuf *ubuf, int *offset_p,
-                                          int *size_p)
+static inline struct ubuf *ubuf_block_get(struct ubuf *ubuf,
+                                          int offset,
+                                          unsigned int *size_p,
+                                          unsigned int *offset_p)
 {
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
     struct ubuf_block *head_block = block;
-    int saved_offset = *offset_p;
 
-    if (*offset_p < 0)
-        *offset_p += block->total_size;
-    if (size_p != NULL && *size_p == -1)
-        *size_p = block->total_size - *offset_p;
+    if (offset < 0) {
+        offset += block->total_size;
+        if (unlikely(offset < 0))
+            return NULL;
+    }
 
-    if (block->cached_offset <= *offset_p) {
-        *offset_p -= block->cached_offset;
+    unsigned int saved_offset = offset;
+    unsigned int off = offset;
+
+    if (size_p != NULL)
+        *size_p = block->total_size - off;
+
+    if (block->cached_offset <= off) {
+        off -= block->cached_offset;
         ubuf = block->cached_ubuf;
         block = ubuf_block_from_ubuf(ubuf);
     }
 
-    while (*offset_p >= block->size) {
-        *offset_p -= block->size;
+    while (off >= block->size) {
+        off -= block->size;
         ubuf = block->next_ubuf;
         if (unlikely(ubuf == NULL))
             return NULL;
@@ -149,7 +157,9 @@ static inline struct ubuf *ubuf_block_get(struct ubuf *ubuf, int *offset_p,
     }
 
     head_block->cached_ubuf = ubuf;
-    head_block->cached_offset = saved_offset - *offset_p;
+    head_block->cached_offset = saved_offset - off;
+    if (offset_p)
+        *offset_p = off;
     return ubuf;
 }
 
@@ -165,12 +175,13 @@ static inline struct ubuf *ubuf_block_get(struct ubuf *ubuf, int *offset_p,
 static inline int ubuf_block_size_linear(struct ubuf *ubuf,
                                          int offset, size_t *size_p)
 {
+    unsigned int off;
     if (unlikely(ubuf->mgr->signature != UBUF_ALLOC_BLOCK ||
-                 (ubuf = ubuf_block_get(ubuf, &offset, NULL)) == NULL))
+                 (ubuf = ubuf_block_get(ubuf, offset, NULL, &off)) == NULL))
         return UBASE_ERR_INVALID;
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
-    *size_p = block->size - offset;
+    *size_p = block->size - off;
     return UBASE_ERR_NONE;
 }
 
@@ -193,8 +204,10 @@ static inline int ubuf_block_size_linear(struct ubuf *ubuf,
 static inline int ubuf_block_read(struct ubuf *ubuf, int offset,
                                   int *size_p, const uint8_t **buffer_p)
 {
+    unsigned int size;
+    unsigned int off;
     if (unlikely(ubuf->mgr->signature != UBUF_ALLOC_BLOCK ||
-                 (ubuf = ubuf_block_get(ubuf, &offset, size_p)) == NULL))
+                 (ubuf = ubuf_block_get(ubuf, offset, &size, &off)) == NULL))
         return UBASE_ERR_INVALID;
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
@@ -202,10 +215,14 @@ static inline int ubuf_block_read(struct ubuf *ubuf, int offset,
         UBASE_RETURN(ubuf_control(ubuf, UBUF_MAP_BLOCK, buffer_p))
     } else
         *buffer_p = block->buffer;
-    *buffer_p += block->offset + offset;
+    *buffer_p += block->offset + off;
 
-    if (size_p != NULL && *size_p > block->size - offset)
-        *size_p = block->size - offset;
+    if (size_p != NULL) {
+        if (*size_p < 0)
+            *size_p = size;
+        if (*size_p > block->size - off)
+            *size_p = block->size - off;
+    }
     return UBASE_ERR_NONE;
 }
 
@@ -229,9 +246,14 @@ static inline int ubuf_block_read(struct ubuf *ubuf, int offset,
 static inline int ubuf_block_write(struct ubuf *ubuf, int offset,
                                    int *size_p, uint8_t **buffer_p)
 {
+    unsigned int size;
+    unsigned int off;
     if (unlikely(ubuf->mgr->signature != UBUF_ALLOC_BLOCK ||
-                 (ubuf = ubuf_block_get(ubuf, &offset, size_p)) == NULL))
+                 (ubuf = ubuf_block_get(ubuf, offset, &size, &off)) == NULL)) {
+        if (size_p && *size_p < 0)
+            *size_p = size;
         return UBASE_ERR_INVALID;
+    }
 
     UBASE_RETURN(ubuf_control(ubuf, UBUF_SINGLE))
 
@@ -240,10 +262,14 @@ static inline int ubuf_block_write(struct ubuf *ubuf, int offset,
         UBASE_RETURN(ubuf_control(ubuf, UBUF_MAP_BLOCK, buffer_p))
     } else
         *buffer_p = block->buffer;
-    *buffer_p += block->offset + offset;
+    *buffer_p += block->offset + off;
 
-    if (size_p != NULL && *size_p > block->size - offset)
-        *size_p = block->size - offset;
+    if (size_p != NULL) {
+        if (*size_p < 0)
+            *size_p = size;
+        if (*size_p > block->size - off)
+            *size_p = block->size - off;
+    }
     return UBASE_ERR_NONE;
 }
 
@@ -258,7 +284,7 @@ static inline int ubuf_block_write(struct ubuf *ubuf, int offset,
 static inline int ubuf_block_unmap(struct ubuf *ubuf, int offset)
 {
     if (unlikely(ubuf->mgr->signature != UBUF_ALLOC_BLOCK ||
-                 (ubuf = ubuf_block_get(ubuf, &offset, NULL)) == NULL))
+                 (ubuf = ubuf_block_get(ubuf, offset, NULL, NULL)) == NULL))
         return UBASE_ERR_INVALID;
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
@@ -343,13 +369,14 @@ static inline int ubuf_block_insert(struct ubuf *ubuf, int offset,
                  insert->mgr->signature != UBUF_ALLOC_BLOCK))
         return UBASE_ERR_INVALID;
 
+    unsigned int off;
     struct ubuf_block *head_block = ubuf_block_from_ubuf(ubuf);
-    if (unlikely((ubuf = ubuf_block_get(ubuf, &offset, NULL)) == NULL))
+    if (unlikely((ubuf = ubuf_block_get(ubuf, offset, NULL, &off)) == NULL))
         return UBASE_ERR_INVALID;
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
-    if (offset < block->size) {
-        UBASE_RETURN(ubuf_block_slice(ubuf, offset))
+    if (off < block->size) {
+        UBASE_RETURN(ubuf_block_slice(ubuf, off))
     }
 
     struct ubuf_block *insert_block = ubuf_block_from_ubuf(insert);
@@ -373,36 +400,40 @@ static inline int ubuf_block_delete(struct ubuf *ubuf, int offset, int size)
     if (unlikely(ubuf->mgr->signature != UBUF_ALLOC_BLOCK))
         return UBASE_ERR_INVALID;
 
+    unsigned int usize;
+    unsigned int off;
     struct ubuf_block *head_block = ubuf_block_from_ubuf(ubuf);
-    if (unlikely((ubuf = ubuf_block_get(ubuf, &offset, &size)) == NULL))
+    if (unlikely((ubuf = ubuf_block_get(ubuf, offset, &usize, &off)) == NULL))
         return UBASE_ERR_INVALID;
-    int delete_size = size;
+    if (size >= 0)
+        usize = size;
+    unsigned int delete_size = usize;
 
     do {
         struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
-        if (!offset) {
+        if (!off) {
             /* Delete from the beginning */
-            size_t deleted = size <= block->size ? size : block->size;
+            size_t deleted = usize <= block->size ? usize : block->size;
             block->size -= deleted;
             block->offset += deleted;
-            size -= deleted;
-            if (!size)
+            usize -= deleted;
+            if (!usize)
                 goto ubuf_block_delete_done;
         } else {
             /* Delete from the end */
-            if (offset + size < block->size) {
-                if (unlikely(!ubase_check(ubuf_block_slice(ubuf, offset + size))))
+            if (off + usize < block->size) {
+                if (unlikely(!ubase_check(ubuf_block_slice(ubuf, off + usize))))
                     return UBASE_ERR_INVALID;
 
-                block->size = offset;
+                block->size = off;
                 goto ubuf_block_delete_done;
             }
-            size_t deleted = block->size - offset;
+            size_t deleted = block->size - off;
             block->size -= deleted;
-            size -= deleted;
-            if (!size)
+            usize -= deleted;
+            if (!usize)
                 goto ubuf_block_delete_done;
-            offset = 0;
+            off = 0;
         }
         ubuf = block->next_ubuf;
     } while (ubuf != NULL);
@@ -439,7 +470,8 @@ static inline int ubuf_block_truncate(struct ubuf *ubuf, int offset)
 
     int saved_size = offset;
     offset--;
-    if (unlikely((ubuf = ubuf_block_get(ubuf, &offset, NULL)) == NULL))
+    unsigned int off;
+    if (unlikely((ubuf = ubuf_block_get(ubuf, offset, NULL, &off)) == NULL))
         return UBASE_ERR_INVALID;
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
@@ -447,7 +479,7 @@ static inline int ubuf_block_truncate(struct ubuf *ubuf, int offset)
         ubuf_free(block->next_ubuf);
         block->next_ubuf = NULL;
     }
-    block->size = offset + 1;
+    block->size = off + 1;
     head_block->total_size = saved_size;
     head_block->cached_ubuf = &head_block->ubuf;
     head_block->cached_offset = 0;
@@ -528,11 +560,14 @@ static inline int ubuf_block_prepend(struct ubuf *ubuf, int prepend)
 static inline struct ubuf *ubuf_block_splice(struct ubuf *ubuf, int offset,
                                              int size)
 {
+    unsigned int usize;
+    unsigned int off;
     struct ubuf *new_ubuf;
     if (unlikely(ubuf->mgr->signature != UBUF_ALLOC_BLOCK ||
-                 (ubuf = ubuf_block_get(ubuf, &offset, &size)) == NULL ||
+                 (ubuf = ubuf_block_get(ubuf, offset, &usize, &off)) == NULL ||
                  !ubase_check(ubuf_control(ubuf, UBUF_SPLICE_BLOCK,
-                                           &new_ubuf, offset, size))))
+                                           &new_ubuf, off,
+                                           size >= 0 ? size : usize))))
         return NULL;
     return new_ubuf;
 }
@@ -551,13 +586,14 @@ static inline struct ubuf *ubuf_block_split(struct ubuf *ubuf, int offset)
         return NULL;
 
     int saved_offset = offset;
+    unsigned int off;
     struct ubuf_block *head_block = ubuf_block_from_ubuf(ubuf);
-    if (unlikely((ubuf = ubuf_block_get(ubuf, &offset, NULL)) == NULL))
+    if (unlikely((ubuf = ubuf_block_get(ubuf, offset, NULL, &off)) == NULL))
         return NULL;
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
-    if (offset < block->size)
-        if (unlikely(!ubase_check(ubuf_block_slice(ubuf, offset))))
+    if (off < block->size)
+        if (unlikely(!ubase_check(ubuf_block_slice(ubuf, off))))
             return NULL;
 
     if (saved_offset < 0)
