@@ -494,7 +494,7 @@ int uuri_authority_to_buffer(const struct uuri_authority *authority,
         ret = snprintf(buffer, len, "%.*s@",
                        (int)authority->userinfo.len,
                        authority->userinfo.at);
-        if (ret < 0 || ret >= len)
+        if (ret < 0 || (size_t)ret >= len)
             return UBASE_ERR_INVALID;
         buffer += ret;
         len -= ret;
@@ -503,7 +503,7 @@ int uuri_authority_to_buffer(const struct uuri_authority *authority,
     ret = snprintf(buffer, len, "%.*s",
                    (int)authority->host.len,
                    authority->host.at);
-    if (ret < 0 || ret >= len)
+    if (ret < 0 || (size_t)ret >= len)
         return UBASE_ERR_INVALID;
     buffer += ret;
     len -= ret;
@@ -512,7 +512,7 @@ int uuri_authority_to_buffer(const struct uuri_authority *authority,
         ret = snprintf(buffer, len, ":%.*s",
                        (int)authority->port.len,
                        authority->port.at);
-        if (ret < 0 || ret >= len)
+        if (ret < 0 || (size_t)ret >= len)
             return UBASE_ERR_INVALID;
     }
 
@@ -528,14 +528,14 @@ int uuri_to_buffer(struct uuri *uuri, char *buffer, size_t len)
 
     ret = snprintf(buffer, len, "%.*s:", (int)uuri->scheme.len,
                    uuri->scheme.at);
-    if (ret < 0 || ret >= len)
+    if (ret < 0 || (size_t)ret >= len)
         return UBASE_ERR_INVALID;
     buffer += ret;
     len -= ret;
 
     if (!uuri_authority_is_null(uuri->authority)) {
         ret = snprintf(buffer, len, "//");
-        if (ret < 0 || ret >= len)
+        if (ret < 0 || (size_t)ret >= len)
             return UBASE_ERR_INVALID;
         buffer += ret;
         len -= ret;
@@ -560,7 +560,7 @@ int uuri_to_buffer(struct uuri *uuri, char *buffer, size_t len)
     ret = snprintf(buffer, len, "%.*s",
                    (int)uuri->path.len,
                    uuri->path.at);
-    if (ret < 0 || ret >= len)
+    if (ret < 0 || (size_t)ret >= len)
         return UBASE_ERR_INVALID;
     buffer += ret;
     len -= ret;
@@ -568,7 +568,7 @@ int uuri_to_buffer(struct uuri *uuri, char *buffer, size_t len)
     if (uuri->query.len) {
         ret = snprintf(buffer, len, "?%.*s", (int)uuri->query.len,
                        uuri->query.at);
-        if (ret < 0 || ret >= len)
+        if (ret < 0 || (size_t)ret >= len)
             return UBASE_ERR_INVALID;
         buffer += ret;
         len -= ret;
@@ -576,7 +576,7 @@ int uuri_to_buffer(struct uuri *uuri, char *buffer, size_t len)
     if (uuri->fragment.len) {
         ret = snprintf(buffer, len, "#%.*s", (int)uuri->fragment.len,
                        uuri->fragment.at);
-        if (ret < 0 || ret >= len)
+        if (ret < 0 || (size_t)ret >= len)
             return UBASE_ERR_INVALID;
     }
 

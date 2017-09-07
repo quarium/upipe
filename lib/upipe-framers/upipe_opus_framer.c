@@ -206,7 +206,8 @@ static bool upipe_opusf_check_frame(struct upipe *upipe, bool *ready_p)
     *ready_p = false;
     if (!ubase_check(uref_block_size(upipe_opusf->next_uref, &size)))
         return false;
-    if (size < upipe_opusf->next_frame_size + upipe_opusf->consume_bytes)
+    if (size < (size_t)upipe_opusf->next_frame_size +
+        upipe_opusf->consume_bytes)
         return true;
 
     uint8_t header[2];

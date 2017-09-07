@@ -184,7 +184,7 @@ static bool upipe_s337f_check_frame(struct upipe *upipe)
         upipe_s337f->next_frame_discard = true;
         return true;
     }
-    return size >= upipe_s337f->next_frame_size + S337_PREAMBLE_SIZE;
+    return size >= (size_t)upipe_s337f->next_frame_size + S337_PREAMBLE_SIZE;
 }
 
 /** @internal @This parses a new s337 header.

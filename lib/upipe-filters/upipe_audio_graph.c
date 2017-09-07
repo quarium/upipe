@@ -341,7 +341,7 @@ static bool upipe_agraph_handle(struct upipe *upipe, struct uref *uref,
         for (uint64_t i = 0; i < upipe_agraph->chan_hist; i++) {
             scale = upipe_agraph->prev[chan][i];
             const int hmax = h - scale * h;
-            for (int row = 0; row < h; row++) {
+            for (int64_t row = 0; row < (int64_t)h; row++) {
                 bool bright = (i == upipe_agraph->chan_hist - 1);
 
                 const uint8_t *color = row < hmax ? black :

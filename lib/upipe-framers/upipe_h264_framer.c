@@ -457,7 +457,8 @@ static int upipe_h264f_stream_parse_hrd(struct upipe *upipe,
 static bool upipe_h264f_activate_sps(struct upipe *upipe, uint32_t sps_id)
 {
     struct upipe_h264f *upipe_h264f = upipe_h264f_from_upipe(upipe);
-    if (likely(upipe_h264f->active_sps == sps_id))
+    if (likely(upipe_h264f->active_sps >= 0 &&
+               (uint32_t)upipe_h264f->active_sps == sps_id))
         return true;
     if (unlikely(upipe_h264f->sps[sps_id] == NULL))
         return false;
@@ -1072,7 +1073,8 @@ static bool upipe_h264f_activate_sps(struct upipe *upipe, uint32_t sps_id)
 static bool upipe_h264f_activate_pps(struct upipe *upipe, uint32_t pps_id)
 {
     struct upipe_h264f *upipe_h264f = upipe_h264f_from_upipe(upipe);
-    if (likely(upipe_h264f->active_pps == pps_id))
+    if (likely(upipe_h264f->active_pps >= 0 &&
+               (uint32_t)upipe_h264f->active_pps == pps_id))
         return true;
     if (unlikely(upipe_h264f->pps[pps_id] == NULL))
         return false;
@@ -1143,7 +1145,8 @@ static int upipe_h264f_handle_sps(struct upipe *upipe, struct ubuf *ubuf,
         return UBASE_ERR_INVALID;
     }
 
-    if (upipe_h264f->active_sps == sps_id &&
+    if (upipe_h264f->active_sps >= 0 &&
+        (uint32_t)upipe_h264f->active_sps == sps_id &&
         !ubase_check(ubuf_block_equal(upipe_h264f->sps[sps_id], ubuf)))
         upipe_h264f->active_sps = -1;
 
@@ -1229,7 +1232,7 @@ static int upipe_h264f_handle_pps(struct upipe *upipe, struct ubuf *ubuf,
     }
 
     if (upipe_h264f->active_sps == -1 ||
-        (upipe_h264f->active_pps == pps_id &&
+        ((uint32_t)upipe_h264f->active_pps == pps_id &&
          !ubase_check(ubuf_block_equal(upipe_h264f->pps[pps_id], ubuf)))) {
         upipe_h264f->active_pps = -1;
     }
@@ -1391,7 +1394,7 @@ static int upipe_h264f_handle_slice(struct upipe *upipe, struct ubuf *ubuf,
         return UBASE_ERR_INVALID;
     }
 
-    if (*au_slice_p && pps_id != upipe_h264f->active_pps) {
+    if (*au_slice_p && pps_id != (uint32_t)upipe_h264f->active_pps) {
         ubuf_block_stream_clean(s);
         return UBASE_ERR_BUSY;
     }
@@ -1539,10 +1542,10 @@ static void upipe_h264f_handle_global_annexb(struct upipe *upipe,
         upipe_h264f->encaps_input = UREF_H26X_ENCAPS_ANNEXB;
     }
 
-    int b = 0;
+    unsigned int b = 0;
     bool au_slice = false;
     do {
-        int e = b + 3;
+        unsigned int e = b + 3;
         while (e < size - 3 &&
                (p[e] != 0 || p[e + 1] != 0 || p[e + 2] != 1))
             e++;
@@ -1833,7 +1836,8 @@ static int upipe_h264f_prepare_au(struct upipe *upipe, struct uref *uref)
     struct upipe_h264f *upipe_h264f = upipe_h264f_from_upipe(upipe);
     uint64_t picture_number = upipe_h264f->last_picture_number +
         (upipe_h264f->frame_num - upipe_h264f->last_frame_num);
-    if (upipe_h264f->frame_num > upipe_h264f->last_frame_num) {
+    if (upipe_h264f->last_frame_num >= 0 &&
+        upipe_h264f->frame_num > (uint32_t)upipe_h264f->last_frame_num) {
         upipe_h264f->last_frame_num = upipe_h264f->frame_num;
         upipe_h264f->last_picture_number = picture_number;
     }

@@ -417,7 +417,7 @@ static int upipe_http_src_output_data(struct upipe *upipe,
     }
     size = -1;
     uref_block_write(uref, 0, &size, &buf);
-    assert(len == size);
+    assert(size >= 0 && len == (unsigned)size);
     if (likely(at != NULL))
         memcpy(buf, at, len);
     uref_block_unmap(uref, 0);
@@ -523,7 +523,7 @@ static void upipe_http_src_process(struct upipe *upipe,
         http_parser_execute(&upipe_http_src->parser,
                             &upipe_http_src->parser_settings,
                             (const char *)buffer, size);
-    if (parsed_len != size) {
+    if (size < 0 || parsed_len != (unsigned)size) {
         upipe_warn(upipe, "http request execution failed");
         upipe_throw_source_end(upipe);
     }
@@ -558,7 +558,8 @@ static void upipe_http_src_worker(struct upump *upump)
         upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
         return;
     }
-    assert(output_size == upipe_http_src->output_size);
+    assert(output_size >= 0 &&
+           (unsigned)output_size == upipe_http_src->output_size);
 
     ssize_t len = recv(upipe_http_src->fd, buffer,
                        upipe_http_src->output_size, 0);

@@ -153,7 +153,7 @@ UPIPE_HELPER_INPUT(upipe_v210dec, urefs, nb_urefs, max_urefs, blockers, upipe_v2
 static void v210_to_planar_8_c(const void *src, uint8_t *y, uint8_t *u, uint8_t *v, uintptr_t pixels)
 {
     /* unroll this to match the assembly */
-    for(int i = 0; i < pixels-5; i += 6 ){
+    for(unsigned int i = 0; i < pixels-5; i += 6 ){
         READ_PIXELS_8(u, y, v);
         READ_PIXELS_8(y, u, y);
         READ_PIXELS_8(v, y, u);
@@ -163,7 +163,7 @@ static void v210_to_planar_8_c(const void *src, uint8_t *y, uint8_t *u, uint8_t 
 
 static void v210_to_planar_10_c(const void *src, uint16_t *y, uint16_t *u, uint16_t *v, uintptr_t pixels)
 {
-    for(int i = 0; i < pixels-5; i += 6 ){
+    for(unsigned int i = 0; i < pixels-5; i += 6 ){
         READ_PIXELS_10(u, y, v);
         READ_PIXELS_10(y, u, y);
         READ_PIXELS_10(v, y, u);
@@ -239,13 +239,13 @@ static bool upipe_v210dec_handle(struct upipe *upipe, struct uref *uref,
 
     switch (v210dec->output_type) {
         case V2D_OUTPUT_PLANAR_8: {
-            for (int h = 0; h < input_vsize; h++) {
+            for (unsigned int h = 0; h < input_vsize; h++) {
                 uint8_t *y = output_planes[0];
                 uint8_t *u = output_planes[1];
                 uint8_t *v = output_planes[2];
                 const uint32_t *src = (uint32_t*)input_plane;
 
-                int w = (input_hsize / 6) * 6;
+                unsigned int w = (input_hsize / 6) * 6;
                 v210dec->v210_to_planar_8(src, y, u, v, w);
 
                 y += w;
@@ -276,13 +276,13 @@ static bool upipe_v210dec_handle(struct upipe *upipe, struct uref *uref,
         } break;
 
         case V2D_OUTPUT_PLANAR_10: {
-            for (int h = 0; h < input_vsize; h++) {
+            for (unsigned int h = 0; h < input_vsize; h++) {
                 uint16_t *y = (uint16_t*)output_planes[0];
                 uint16_t *u = (uint16_t*)output_planes[1];
                 uint16_t *v = (uint16_t*)output_planes[2];
                 const uint32_t *src = (uint32_t*)input_plane;
 
-                int w = (input_hsize / 6) * 6;
+                unsigned int w = (input_hsize / 6) * 6;
                 v210dec->v210_to_planar_10(src, y, u, v, w);
 
                 y += w;

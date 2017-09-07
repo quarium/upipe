@@ -175,14 +175,14 @@ static bool upipe_ts_psim_merge(struct upipe *upipe, struct uref *uref,
         return false;
     }
 
-    if (length + PSI_HEADER_SIZE > size)
+    if (length + (unsigned)PSI_HEADER_SIZE > size)
         return false;
 
     UBASE_FATAL(upipe, uref_block_resize(upipe_ts_psim->next_uref, 0,
                 length + PSI_HEADER_SIZE));
     upipe_ts_psim_output(upipe, upipe_ts_psim->next_uref, upump_p);
     upipe_ts_psim->next_uref = NULL;
-    if (length + PSI_HEADER_SIZE == size)
+    if (length + (unsigned)PSI_HEADER_SIZE == size)
         return false;
 
     size_t uref_size = 0;

@@ -208,8 +208,8 @@ static int upipe_crop_prepare(struct upipe *upipe)
     OFFSET(b)
 #undef OFFSET
 
-    if (crop->hsize < loffset + roffset ||
-        crop->vsize < toffset + boffset) {
+    if (loffset + roffset < 0 || crop->hsize < (unsigned)(loffset + roffset) ||
+        toffset + boffset < 0 || crop->vsize < (unsigned)(toffset + boffset)) {
         uref_free(flow_def);
         return UBASE_ERR_INVALID;
     }

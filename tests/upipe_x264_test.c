@@ -170,7 +170,7 @@ static void fill_pic(struct uref *uref, int counter)
         uint8_t *buffer;
         assert(ubase_check(uref_pic_plane_write(uref, chroma, 0, 0, -1, -1, &buffer)));
 
-        for (int y = 0; y < vsize / vsub; y++) {
+        for (unsigned int y = 0; y < vsize / vsub; y++) {
             for (int x = 0; x < hoctets; x++)
                 buffer[x] = 1 + (y * hoctets) + x + counter * 5;
             buffer += stride;

@@ -59,7 +59,7 @@ int ubuf_pic_plane_clear(struct ubuf *ubuf, const char *chroma,
     uint8_t hsub, vsub, macropixel_size, macropixel;
     uint8_t *buf = NULL;
     bool known = true;
-    int j;
+    unsigned int j;
 
     if (!ubuf)
         return UBASE_ERR_INVALID;

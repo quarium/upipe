@@ -531,12 +531,12 @@ static void upipe_vanc_process_scte104(struct upipe *upipe, struct uref *uref,
         upipe_vanc_alloc_scte104(upipe, uref);
     if (unlikely(upipe_vanc->scte104_uref == NULL))
         return;
-    if (unlikely(size - 1 > upipe_vanc->scte104_end - upipe_vanc->scte104_w)) {
+    if (unlikely((ssize_t)size - 1 > upipe_vanc->scte104_end - upipe_vanc->scte104_w)) {
         upipe_warn(upipe, "too much scte104 data");
         return;
     }
 
-    for (int j = 1; j < size; j++)
+    for (size_t j = 1; j < size; j++)
         *upipe_vanc->scte104_w++ = r[j] & 0xff;
 }
 
@@ -773,12 +773,13 @@ static void upipe_vanc_process_cea708(struct upipe *upipe, struct uref *uref,
         upipe_vanc_alloc_cea708(upipe, uref);
     if (unlikely(upipe_vanc->cea708_uref == NULL))
         return;
-    if (unlikely(size > upipe_vanc->cea708_end - upipe_vanc->cea708_w)) {
+    if (unlikely(size >
+                 (size_t)( upipe_vanc->cea708_end - upipe_vanc->cea708_w))) {
         upipe_warn(upipe, "too much cea708 data");
         return;
     }
 
-    for (int j = 0; j < size; j++)
+    for (size_t j = 0; j < size; j++)
         *upipe_vanc->cea708_w++ = r[j] & 0xff;
 }
 
@@ -804,7 +805,7 @@ static void upipe_vanc_process_line(struct upipe *upipe, struct uref *uref,
         uint8_t did = s291_get_did(r);
         uint8_t sdid = s291_get_sdid(r);
         uint8_t dc = s291_get_dc(r);
-        if (S291_HEADER_SIZE + dc + S291_FOOTER_SIZE > hsize) {
+        if ((unsigned)S291_HEADER_SIZE + dc + S291_FOOTER_SIZE > hsize) {
             upipe_warn_va(upipe, "ancillary too large (%"PRIu8" > %zu) for 0x%"PRIx8"/0x%"PRIx8,
                           dc, hsize, did, sdid);
             break;

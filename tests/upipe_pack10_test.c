@@ -99,7 +99,7 @@ static void test_input(struct upipe *upipe, struct uref *uref,
     struct ubuf_block_stream s;
     ubase_assert(ubuf_block_stream_init(&s, uref->ubuf, 0));
 
-    for (int i = 0; i < WIDTH; i++) {
+    for (unsigned int i = 0; i < WIDTH; i++) {
         ubuf_block_stream_fill_bits(&s, 10);
         assert(ubuf_block_stream_show_bits(&s, 10) == i);
         ubuf_block_stream_skip_bits(&s, 10);

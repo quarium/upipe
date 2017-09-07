@@ -287,7 +287,8 @@ static int upipe_msrc_start(struct upipe *upipe)
 
     struct stat aux_stat;
     if (unlikely(fstat(fd, &aux_stat) == -1 ||
-                 aux_stat.st_size < sizeof(uint64_t))) {
+                 aux_stat.st_size < 0 ||
+                 (size_t)aux_stat.st_size < sizeof(uint64_t))) {
         upipe_warn_va(upipe, "invalid segment %"PRIu64, upipe_msrc->fileidx);
         /* try next file anyway */
         return upipe_msrc_skip(upipe);
@@ -360,7 +361,8 @@ static int upipe_msrc_handle(struct upipe *upipe)
         uref_free(uref);
         return UBASE_ERR_ALLOC;
     }
-    assert(output_size == upipe_msrc->output_size);
+    assert(output_size < 0 ||
+           (unsigned)output_size == upipe_msrc->output_size);
 
     ssize_t ret = read(upipe_msrc->fd, buffer, upipe_msrc->output_size);
     uref_block_unmap(uref, 0);

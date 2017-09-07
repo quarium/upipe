@@ -270,7 +270,7 @@ write_buffer:
 
         size_t uref_size;
         if (ubase_check(uref_block_size(uref, &uref_size)) &&
-            uref_size == ret) {
+            uref_size == (unsigned)ret) {
             uref_free(uref);
             break;
         }

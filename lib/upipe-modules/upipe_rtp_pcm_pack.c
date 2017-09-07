@@ -295,8 +295,8 @@ static bool upipe_rtp_pcm_pack_handle(struct upipe *upipe, struct uref *uref,
 
     uref_sound_read_int32_t(uref, 0, -1, &src, 1);
 
-    for (int i = 0; i < s; i++)
-        for (int j = 0; j < 3; j++)
+    for (size_t i = 0; i < s; i++)
+        for (size_t  j = 0; j < 3; j++)
             dst[3*i+j] = (src[i] >> (8 * (3-j))) & 0xff;
 
     ubuf_block_unmap(ubuf, 0);

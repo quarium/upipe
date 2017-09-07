@@ -279,7 +279,8 @@ static void upipe_dveo_asi_src_worker(struct upump *upump)
         const uint8_t *ptr = uref_block_peek(uref, 0, 8, tmp);
         ts = ((uint64_t)ptr[7] << 56) | ((uint64_t)ptr[6] << 48) | ((uint64_t)ptr[5] << 40) | ((uint64_t)ptr[4] << 32) |
              ((uint64_t)ptr[3] << 24) | ((uint64_t)ptr[2] << 16) | ((uint64_t)ptr[1] <<  8) | ((uint64_t)ptr[0] <<  0);
-        discontinuity = ts < upipe_dveo_asi_src->last_ts;
+        discontinuity = upipe_dveo_asi_src->last_ts >= 0 &&
+            ts < (uint64_t)upipe_dveo_asi_src->last_ts;
         upipe_dveo_asi_src->last_ts = ts;
         uref_block_peek_unmap(uref, 0, tmp, ptr);
 

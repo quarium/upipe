@@ -316,7 +316,7 @@ static void upipe_sdi_unpack_c(const uint8_t *src, uint16_t *y, int64_t size)
 {
     uint64_t pixels = size * 8 /10;
 
-    for (int i = 0; i < pixels; i += 4) {
+    for (uint64_t i = 0; i < pixels; i += 4) {
         uint8_t a = *src++;
         uint8_t b = *src++;
         uint8_t c = *src++;

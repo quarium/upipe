@@ -253,7 +253,8 @@ static void upipe_fsrc_worker(struct upump *upump)
         upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
         return;
     }
-    assert(output_size == upipe_fsrc->output_size);
+    assert(output_size >= 0 &&
+           (unsigned)output_size == upipe_fsrc->output_size);
 
     ssize_t ret = read(upipe_fsrc->fd, buffer, upipe_fsrc->output_size);
     uref_block_unmap(uref, 0);

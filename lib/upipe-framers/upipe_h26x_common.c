@@ -92,7 +92,7 @@ int upipe_h26xf_stream_get(struct ubuf_block_stream *s, uint8_t *octet_p)
  */
 uint32_t upipe_h26xf_stream_ue(struct ubuf_block_stream *s)
 {
-    int i = 1;
+    unsigned int i = 1;
     while (i < 32) {
         upipe_h26xf_stream_fill_bits(s, 8);
         uint8_t octet = ubuf_block_stream_show_bits(s, 8);

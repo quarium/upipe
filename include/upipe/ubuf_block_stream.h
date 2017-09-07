@@ -216,7 +216,7 @@ static inline int ubuf_block_stream_init_bits(struct ubuf_block_stream *s,
                                               struct ubuf *ubuf, int offset)
 {
     UBASE_RETURN(ubuf_block_stream_init(s, ubuf, offset / 8));
-    int bits = offset % 8;
+    unsigned int bits = offset % 8;
     if (bits) {
         ubuf_block_stream_fill_bits(s, bits);
         ubuf_block_stream_skip_bits(s, bits);

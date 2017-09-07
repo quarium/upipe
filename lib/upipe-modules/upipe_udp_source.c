@@ -206,7 +206,8 @@ static void upipe_udpsrc_worker(struct upump *upump)
         upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
         return;
     }
-    assert(output_size == upipe_udpsrc->output_size);
+    assert(output_size >= 0 &&
+           (unsigned)output_size == upipe_udpsrc->output_size);
 
     struct sockaddr_storage addr;
     socklen_t addrlen = sizeof(addr);

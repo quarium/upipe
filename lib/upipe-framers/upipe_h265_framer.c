@@ -588,13 +588,13 @@ upipe_h265f_stream_parse_short_term_ref_pic_set(struct ubuf_block_stream *s,
 
     if (prediction_flag) {
         uint32_t delta_idx = 1;
-        if (idx == max)
+        if (idx == (int)max)
             delta_idx = upipe_h26xf_stream_ue(s) + 1;
         upipe_h26xf_stream_fill_bits(s, 1);
         ubuf_block_stream_skip_bits(s, 1);
         upipe_h26xf_stream_ue(s);
-        int ref_idx = delta_idx > idx ? 0 : delta_idx;
-        for (int i = 0; i < num_delta_pocs[ref_idx]; i++) {
+        int ref_idx = (int)delta_idx > idx ? 0 : (int)delta_idx;
+        for (unsigned int i = 0; i < num_delta_pocs[ref_idx]; i++) {
             upipe_h26xf_stream_fill_bits(s, 2);
             bool used_by_curr_pic = !!ubuf_block_stream_show_bits(s, 1);
             ubuf_block_stream_skip_bits(s, 1);
@@ -609,12 +609,12 @@ upipe_h265f_stream_parse_short_term_ref_pic_set(struct ubuf_block_stream *s,
         if (num_positive_pics > max_dec_pic_buffering_1 - num_negative_pics)
             return false;
         num_delta_pocs[idx] = num_negative_pics + num_positive_pics;
-        for (int i = 0; i < num_negative_pics; i++) {
+        for (unsigned int i = 0; i < num_negative_pics; i++) {
             upipe_h26xf_stream_ue(s);
             upipe_h26xf_stream_fill_bits(s, 1);
             ubuf_block_stream_skip_bits(s, 1);
         }
-        for (int i = 0; i < num_positive_pics; i++) {
+        for (unsigned int i = 0; i < num_positive_pics; i++) {
             upipe_h26xf_stream_ue(s);
             upipe_h26xf_stream_fill_bits(s, 1);
             ubuf_block_stream_skip_bits(s, 1);
@@ -632,7 +632,7 @@ upipe_h265f_stream_parse_short_term_ref_pic_set(struct ubuf_block_stream *s,
 static bool upipe_h265f_activate_vps(struct upipe *upipe, uint32_t vps_id)
 {
     struct upipe_h265f *upipe_h265f = upipe_h265f_from_upipe(upipe);
-    if (likely(upipe_h265f->active_vps == vps_id))
+    if (likely(upipe_h265f->active_vps == (int)vps_id))
         return true;
     if (unlikely(upipe_h265f->vps[vps_id] == NULL)) {
         upipe_err(upipe, "invalid VPS ID");
@@ -686,7 +686,7 @@ static bool upipe_h265f_activate_vps(struct upipe *upipe, uint32_t vps_id)
 static bool upipe_h265f_activate_sps(struct upipe *upipe, uint32_t sps_id)
 {
     struct upipe_h265f *upipe_h265f = upipe_h265f_from_upipe(upipe);
-    if (likely(upipe_h265f->active_sps == sps_id))
+    if (likely(upipe_h265f->active_sps == (int)sps_id))
         return true;
     if (unlikely(upipe_h265f->sps[sps_id] == NULL)) {
         upipe_err(upipe, "invalid SPS ID");
@@ -862,7 +862,7 @@ static bool upipe_h265f_activate_sps(struct upipe *upipe, uint32_t sps_id)
     uint32_t max_short_term_ref_pic_sets = upipe_h26xf_stream_ue(s);
     uint32_t num_delta_pocs[max_short_term_ref_pic_sets];
     memset(num_delta_pocs, 0, sizeof(num_delta_pocs));
-    for (int i = 0; i < max_short_term_ref_pic_sets; i++) {
+    for (unsigned int i = 0; i < max_short_term_ref_pic_sets; i++) {
         if (!upipe_h265f_stream_parse_short_term_ref_pic_set(s, i,
                 max_short_term_ref_pic_sets, max_dec_pic_buffering_1,
                 num_delta_pocs)) {
@@ -877,7 +877,7 @@ static bool upipe_h265f_activate_sps(struct upipe *upipe, uint32_t sps_id)
     ubuf_block_stream_skip_bits(s, 1);
     if (long_term_ref_pics) {
         uint32_t num_long_term_ref_pics = upipe_h26xf_stream_ue(s);
-        for (int i = 0; i < num_long_term_ref_pics; i++) {
+        for (unsigned int i = 0; i < num_long_term_ref_pics; i++) {
             upipe_h26xf_stream_fill_bits(s, log2_max_pic_order_cnt + 1);
             ubuf_block_stream_skip_bits(s, log2_max_pic_order_cnt + 1);
         }
@@ -1213,7 +1213,7 @@ static bool upipe_h265f_activate_sps(struct upipe *upipe, uint32_t sps_id)
 static bool upipe_h265f_activate_pps(struct upipe *upipe, uint32_t pps_id)
 {
     struct upipe_h265f *upipe_h265f = upipe_h265f_from_upipe(upipe);
-    if (likely(upipe_h265f->active_pps == pps_id))
+    if (likely(upipe_h265f->active_pps == (int)pps_id))
         return true;
     if (unlikely(upipe_h265f->pps[pps_id] == NULL)) {
         upipe_err(upipe, "invalid PPS ID");
@@ -1331,7 +1331,7 @@ static int upipe_h265f_handle_sps(struct upipe *upipe, struct ubuf *ubuf,
     }
 
     if (upipe_h265f->active_vps == -1 ||
-        (upipe_h265f->active_sps == sps_id &&
+        (upipe_h265f->active_sps == (int)sps_id &&
          !ubase_check(ubuf_block_equal(upipe_h265f->sps[sps_id], ubuf)))) {
         upipe_h265f->active_sps = -1;
     }
@@ -1377,7 +1377,7 @@ static int upipe_h265f_handle_pps(struct upipe *upipe, struct ubuf *ubuf,
     }
 
     if (upipe_h265f->active_vps == -1 || upipe_h265f->active_sps == -1 ||
-        (upipe_h265f->active_pps == pps_id &&
+        (upipe_h265f->active_pps == (int)pps_id &&
          !ubase_check(ubuf_block_equal(upipe_h265f->pps[pps_id], ubuf)))) {
         upipe_h265f->active_pps = -1;
     }
@@ -1520,7 +1520,7 @@ static int upipe_h265f_handle_slice(struct upipe *upipe, struct ubuf *ubuf,
         ubuf_block_stream_clean(s);
         return UBASE_ERR_INVALID;
     }
-    if (*au_slice_p && pps_id != upipe_h265f->active_pps) {
+    if (*au_slice_p && (int)pps_id != upipe_h265f->active_pps) {
         ubuf_block_stream_clean(s);
         return UBASE_ERR_BUSY;
     }
@@ -1601,10 +1601,10 @@ static void upipe_h265f_handle_global_annexb(struct upipe *upipe,
         upipe_h265f->encaps_input = UREF_H26X_ENCAPS_ANNEXB;
     }
 
-    int b = 0;
+    unsigned int b = 0;
     bool au_slice = false;
     do {
-        int e = b + 3;
+        unsigned int e = b + 3;
         while (e < size - 3 &&
                (p[e] != 0 || p[e + 1] != 0 || p[e + 2] != 1))
             e++;

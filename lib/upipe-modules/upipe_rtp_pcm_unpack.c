@@ -252,7 +252,7 @@ static bool upipe_rtp_pcm_unpack_handle(struct upipe *upipe, struct uref *uref,
     uref_block_read(uref, 0, &size, &src);
     ubuf_sound_write_int32_t(ubuf, 0, -1, &dst, 1);
 
-    for (int i = 0; i < s; i++)
+    for (size_t i = 0; i < s; i++)
         dst[i] = (src[3*i] << 24) | (src[3*i+1] << 16) | (src[3*i+2] << 8);
 
     ubuf_sound_unmap(ubuf, 0, -1, 1);

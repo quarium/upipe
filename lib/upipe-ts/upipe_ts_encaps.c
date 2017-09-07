@@ -293,7 +293,7 @@ static void upipe_ts_encaps_update_status(struct upipe *upipe)
         }
     } else {
         /* Move forward the buffer wrt. the TB buffer. */
-        int64_t tb_diff = (uint64_t)(tb_buffer - (TS_SIZE - TS_HEADER_SIZE)) *
+        uint64_t tb_diff = (uint64_t)(tb_buffer - (TS_SIZE - TS_HEADER_SIZE)) *
                           UCLOCK_FREQ / encaps->tb_rate;
         if (tb_diff > encaps->max_delay - (dts_sys - cr_sys))
             tb_diff = encaps->max_delay - (dts_sys - cr_sys);
@@ -1121,7 +1121,7 @@ static struct ubuf *upipe_ts_encaps_build_ts(struct upipe *upipe,
         ubuf_free(ubuf);
         return NULL;
     }
-    assert(size == header_size);
+    assert(size >= 0 && (unsigned)size == header_size);
 
     ts_init(buffer);
     ts_set_pid(buffer, encaps->pid);

@@ -326,12 +326,13 @@ static bool upipe_audiobar_handle(struct upipe *upipe, struct uref *uref,
         scale = iec_scale(scale);
 
         const int hmax = h - scale * h;
-        for (int row = 0; row < h; row++) {
-            bool bright = row > hmax;
+        for (uint64_t row = 0; row < h; row++) {
+            bool bright = hmax < 0 || row > (uint64_t)hmax;
 
-            const uint8_t *color = row < hred ? red[!bright] :
-                                   row < hyellow ? yellow[!bright] :
-                                   green[!bright];
+            const uint8_t *color =
+                hred >= 0 && row < (uint64_t)hred ? red[!bright] :
+                hyellow >= 0 && row < (uint64_t)hyellow ? yellow[!bright] :
+                green[!bright];
 
             copy_color(dst, strides, hsubs, vsubs, color, row,
                        chan * upipe_audiobar->chan_width,

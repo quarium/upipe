@@ -220,7 +220,7 @@ static inline int ubuf_block_read(struct ubuf *ubuf, int offset,
     if (size_p != NULL) {
         if (*size_p < 0)
             *size_p = size;
-        if (*size_p > block->size - off)
+        if ((unsigned)*size_p > block->size - off)
             *size_p = block->size - off;
     }
     return UBASE_ERR_NONE;
@@ -267,7 +267,7 @@ static inline int ubuf_block_write(struct ubuf *ubuf, int offset,
     if (size_p != NULL) {
         if (*size_p < 0)
             *size_p = size;
-        if (*size_p > block->size - off)
+        if ((unsigned)*size_p > block->size - off)
             *size_p = block->size - off;
     }
     return UBASE_ERR_NONE;
@@ -508,9 +508,9 @@ static inline int ubuf_block_resize(struct ubuf *ubuf, int offset, int new_size)
         return UBASE_ERR_INVALID;
 
     if (new_size != -1) {
-        if (new_size + offset > block->total_size)
+        if ((unsigned)new_size + offset > block->total_size)
             return UBASE_ERR_INVALID;
-        if (new_size + offset < block->total_size) {
+        if ((unsigned)new_size + offset < block->total_size) {
             UBASE_RETURN(ubuf_block_truncate(ubuf, new_size + offset))
         }
     }
@@ -538,7 +538,7 @@ static inline int ubuf_block_prepend(struct ubuf *ubuf, int prepend)
 
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
 
-    if (prepend > block->offset)
+    if ((unsigned)prepend > block->offset)
         return UBASE_ERR_INVALID;
 
     block->offset -= prepend;
@@ -567,7 +567,8 @@ static inline struct ubuf *ubuf_block_splice(struct ubuf *ubuf, int offset,
                  (ubuf = ubuf_block_get(ubuf, offset, &usize, &off)) == NULL ||
                  !ubase_check(ubuf_control(ubuf, UBUF_SPLICE_BLOCK,
                                            &new_ubuf, off,
-                                           size >= 0 ? size : usize))))
+                                           size >= 0 ?
+                                            (unsigned)size : usize))))
         return NULL;
     return new_ubuf;
 }
@@ -786,7 +787,7 @@ static inline int ubuf_block_iovec_count(struct ubuf *ubuf,
         if (unlikely(!ubase_check(ubuf_block_size_linear(ubuf, offset,
                                                          &read_size))))
             return -1;
-        if (read_size > size)
+        if (read_size > (unsigned)size)
             read_size = size;
         size -= read_size;
         offset += read_size;
@@ -910,8 +911,8 @@ static inline struct ubuf *ubuf_block_copy(struct ubuf_mgr *mgr,
         extract_offset = 0;
         extract_skip = skip;
     }
-    int extract_size = new_size - extract_offset <= ubuf_size - extract_skip ?
-                       new_size - extract_offset : ubuf_size - extract_skip;
+    int extract_size = new_size - extract_offset <= (int)ubuf_size - extract_skip ?
+                       new_size - extract_offset : (int)ubuf_size - extract_skip;
     uint8_t *buffer;
     bool ret;
     if (unlikely(!ubase_check(ubuf_block_write(new_ubuf, extract_offset,
@@ -1061,7 +1062,8 @@ static inline int ubuf_block_match(struct ubuf *ubuf, const uint8_t *filter,
         int read_size = size;
         const uint8_t *read_buffer;
         UBASE_RETURN(ubuf_block_read(ubuf, offset, &read_size, &read_buffer))
-        int compare_size = read_size < size ? read_size : size;
+        int compare_size =
+            (unsigned)read_size < size ? (unsigned)read_size : size;
         for (int i = 0; i < compare_size; i++)
             if ((read_buffer[i] & mask[offset + i]) != filter[offset + i]) {
                 ubuf_block_unmap(ubuf, offset);
@@ -1130,7 +1132,7 @@ static inline int ubuf_block_find_va(struct ubuf *ubuf, size_t *offset_p,
 
         va_list args_copy;
         va_copy(args_copy, args);
-        int i;
+        unsigned int i;
         for (i = 0; i < nb_octets - 1; i++) {
             unsigned int word = va_arg(args_copy, unsigned int);
             if (buffer[i] != word)

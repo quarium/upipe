@@ -638,7 +638,8 @@ static void upipe_avcenc_encode_video(struct upipe *upipe,
     /* FIXME check picture format against flow def */
     size_t hsize, vsize;
     if (unlikely(!ubase_check(uref_pic_size(uref, &hsize, &vsize, NULL)) ||
-                 hsize != context->width || vsize != context->height)) {
+                 hsize != (size_t)context->width ||
+                 vsize != (size_t)context->height)) {
         upipe_warn(upipe, "invalid buffer received");
         uref_free(uref);
         return;
@@ -750,7 +751,7 @@ static void upipe_avcenc_encode_audio(struct upipe *upipe,
 
     struct uref *main_uref = NULL;
     size_t offset = 0;
-    while (offset < context->frame_size) {
+    while (offset < (size_t)context->frame_size) {
         struct uchain *uchain = ulist_peek(&upipe_avcenc->sound_urefs);
         if (unlikely(uchain == NULL)) {
             /* end of stream, finish with silence */
@@ -877,7 +878,7 @@ static bool upipe_avcenc_handle(struct upipe *upipe, struct uref *uref,
             ulist_add(&upipe_avcenc->sound_urefs, uref_to_uchain(uref));
             upipe_avcenc->nb_samples += size;
 
-            while (upipe_avcenc->nb_samples >= context->frame_size)
+            while (upipe_avcenc->nb_samples >= (unsigned)context->frame_size)
                 upipe_avcenc_encode_audio(upipe, upump_p);
             break;
         }
@@ -1118,7 +1119,7 @@ static int upipe_avcenc_set_flow_def(struct upipe *upipe, struct uref *flow_def)
             int i;
             for (i = 0; supported_framerates[i].num; i++)
                 if (supported_framerates[i].num == fps.num &&
-                    supported_framerates[i].den == fps.den)
+                    (uint64_t)supported_framerates[i].den == fps.den)
                     break;
             if (!supported_framerates[i].num) {
                 upipe_err_va(upipe, "unsupported frame rate %"PRIu64"/%"PRIu64,
@@ -1178,7 +1179,7 @@ static int upipe_avcenc_set_flow_def(struct upipe *upipe, struct uref *flow_def)
         }
         if (supported_samplerates != NULL) {
             while (*supported_samplerates != 0) {
-                if (*supported_samplerates == rate)
+                if ((uint64_t)*supported_samplerates == rate)
                     break;
                 supported_samplerates++;
             }
@@ -1271,7 +1272,7 @@ static int _upipe_avcenc_provide_flow_format(struct upipe *upipe,
             float diff_fps = UINT16_MAX; /* arbitrarily big */
             for (i = 0; supported_framerates[i].num; i++) {
                 if (supported_framerates[i].num == fps.num &&
-                    supported_framerates[i].den == fps.den)
+                    (uint64_t)supported_framerates[i].den == fps.den)
                     break;
                 float this_fps = (float)supported_framerates[i].num /
                                  (float)supported_framerates[i].den;
@@ -1318,11 +1319,12 @@ static int _upipe_avcenc_provide_flow_format(struct upipe *upipe,
             int closest = -1;
             uint64_t diff_rate = UINT64_MAX; /* arbitrarily big */
             for (i = 0; supported_samplerates[i]; i++) {
-                if (supported_samplerates[i] == rate)
+                if ((uint64_t)supported_samplerates[i] == rate)
                     break;
-                uint64_t this_diff_rate = supported_samplerates[i] > rate ?
-                                          supported_samplerates[i] - rate :
-                                          rate - supported_samplerates[i];
+                uint64_t this_diff_rate =
+                    (uint64_t)supported_samplerates[i] > rate ?
+                    supported_samplerates[i] - rate :
+                    rate - supported_samplerates[i];
                 if (this_diff_rate < diff_rate) {
                     diff_rate = this_diff_rate;
                     closest = i;

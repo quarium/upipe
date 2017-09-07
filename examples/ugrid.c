@@ -874,7 +874,7 @@ static void stdin_cb(struct upump *upump)
         return;
     }
 
-    if (rsize >= sizeof (buffer)) {
+    if ((size_t)rsize >= sizeof (buffer)) {
         uprobe_warn(uprobe_main, NULL, "command line is too long");
         return;
     }
