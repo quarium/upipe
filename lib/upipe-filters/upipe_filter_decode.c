@@ -95,6 +95,10 @@ struct upipe_fdec {
     struct upipe *first_inner;
     /** last inner pipe of the bin (avcdec) */
     struct upipe *last_inner;
+    /** inner alloc flow def */
+    struct uref *alloc_flow_def;
+    /** inner flow def set */
+    bool flow_def_set;
     /** output */
     struct upipe *output;
 
@@ -142,6 +146,8 @@ static struct upipe *upipe_fdec_alloc(struct upipe_mgr *mgr,
     upipe_fdec_init_bin_input(upipe);
     upipe_fdec_init_bin_output(upipe);
     upipe_fdec->options = NULL;
+    upipe_fdec->alloc_flow_def = NULL;
+    upipe_fdec->flow_def_set = false;
     upipe_throw_ready(upipe);
     upipe_fdec_demand_uref_mgr(upipe);
     return upipe;
@@ -161,6 +167,80 @@ static int upipe_fdec_provide(struct upipe *upipe, struct uref *unused)
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This allocates the inner pipe if needed.
+ *
+ * @param upipe description structure of the pipe
+ * @return an error code
+ */
+static int upipe_fdec_alloc_inner(struct upipe *upipe, struct uref *flow_def)
+{
+    struct upipe_fdec_mgr *fdec_mgr = upipe_fdec_mgr_from_upipe_mgr(upipe->mgr);
+    struct upipe_fdec *upipe_fdec = upipe_fdec_from_upipe(upipe);
+
+    if (unlikely(!flow_def))
+        return UBASE_ERR_INVALID;
+
+    /* check if last inner is set, see comment below */
+    const char *def;
+    if (upipe_fdec->last_inner != NULL &&
+        ubase_check(uref_flow_get_def(flow_def, &def)) &&
+        ubase_check(uref_flow_match_def(upipe_fdec->alloc_flow_def, def)))
+        return UBASE_ERR_NONE;
+
+    upipe_fdec->flow_def_set = false;
+    uref_free(upipe_fdec->alloc_flow_def);
+    upipe_fdec->alloc_flow_def = NULL;
+    upipe_fdec_store_bin_input(upipe, NULL);
+    upipe_fdec_store_bin_output(upipe, NULL);
+
+    upipe_fdec->alloc_flow_def = uref_dup(flow_def);
+    UBASE_ALLOC_RETURN(upipe_fdec->alloc_flow_def);
+    struct upipe *avcdec = upipe_void_alloc(fdec_mgr->avcdec_mgr,
+            uprobe_pfx_alloc(
+                uprobe_use(&upipe_fdec->last_inner_probe),
+                UPROBE_LOG_VERBOSE, "avcdec"));
+
+    if (unlikely(avcdec == NULL)) {
+        upipe_err_va(upipe, "couldn't allocate avcdec");
+        uref_free(upipe_fdec->alloc_flow_def);
+        upipe_fdec->alloc_flow_def = NULL;
+        return UBASE_ERR_UNHANDLED;
+    }
+
+    /* store last inner first to prevent infinite urequest loop.
+     * If bin input is stored before bin output, urequest may be forward and
+     * cause upipe_fdec_set_flow_def to be called before we store last inner.
+     * starting an infinite loop. see comment above */
+    upipe_fdec_store_bin_output(upipe, avcdec);
+    upipe_fdec_store_bin_input(upipe, upipe_use(avcdec));
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This synchronizes the inner pipe options.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_fdec_sync_options(struct upipe *upipe)
+{
+    struct upipe_fdec *upipe_fdec = upipe_fdec_from_upipe(upipe);
+    struct udict *udict =
+        upipe_fdec->options ? upipe_fdec->options->udict : NULL;
+
+    if (upipe_fdec->last_inner == NULL || udict == NULL)
+        return;
+
+    const char *key = NULL;
+    enum udict_type type = UDICT_TYPE_END;
+    while (ubase_check(udict_iterate(udict, &key, &type)) &&
+           type != UDICT_TYPE_END) {
+        const char *value;
+        if (!key || !ubase_check(udict_get_string(udict, &value, type, key)))
+            continue;
+        if (!ubase_check(upipe_set_option(upipe_fdec->last_inner, key, value)))
+            upipe_warn_va(upipe, "option %s=%s invalid", key, value);
+    }
+}
+
 /** @internal @This sets the input flow definition.
  *
  * @param upipe description structure of the pipe
@@ -174,49 +254,27 @@ static int upipe_fdec_set_flow_def(struct upipe *upipe, struct uref *flow_def)
     if (flow_def == NULL)
         return UBASE_ERR_INVALID;
 
-    /* check if last inner is set, see comment below */
-    if (upipe_fdec->last_inner != NULL) {
-        if (ubase_check(upipe_set_flow_def(upipe_fdec->last_inner, flow_def)))
-            return UBASE_ERR_NONE;
-    }
-    upipe_fdec_store_bin_input(upipe, NULL);
-    upipe_fdec_store_bin_output(upipe, NULL);
+    upipe_err(upipe, "set flow def");
+    struct uref *last_flow_def = NULL;
+    bool sync_options = !upipe_fdec->flow_def_set;
 
-    struct upipe *avcdec = upipe_void_alloc(fdec_mgr->avcdec_mgr,
-            uprobe_pfx_alloc(
-                uprobe_use(&upipe_fdec->last_inner_probe),
-                UPROBE_LOG_VERBOSE, "avcdec"));
-
-    if (unlikely(avcdec == NULL)) {
-        upipe_err_va(upipe, "couldn't allocate avcdec");
-        return UBASE_ERR_UNHANDLED;
+    int ret = upipe_fdec_alloc_inner(upipe, flow_def);
+    if (unlikely(!ubase_check(ret))) {
+        upipe_err(upipe, "fail to allocate inner pipe");
+        return ret;
     }
-    if (unlikely(!ubase_check(upipe_set_flow_def(avcdec, flow_def)))) {
+
+    upipe_fdec->flow_def_set = true;
+    ret = upipe_set_flow_def(upipe_fdec->first_inner, flow_def);
+    if (unlikely(!ubase_check(ret))) {
         upipe_err_va(upipe, "couldn't set avcdec flow def");
-        upipe_release(avcdec);
+        upipe_fdec->flow_def_set = false;
         return UBASE_ERR_UNHANDLED;
     }
-    if (upipe_fdec->options != NULL && upipe_fdec->options->udict != NULL) {
-        const char *key = NULL;
-        enum udict_type type = UDICT_TYPE_END;
-        while (ubase_check(udict_iterate(upipe_fdec->options->udict, &key,
-                                         &type)) && type != UDICT_TYPE_END) {
-            const char *value;
-            if (key == NULL ||
-                !ubase_check(udict_get_string(upipe_fdec->options->udict,
-                                              &value, type, key)))
-                continue;
-            if (!ubase_check(upipe_set_option(avcdec, key, value)))
-                upipe_warn_va(upipe, "option %s=%s invalid", key, value);
-        }
-    }
 
-    /* store last inner first to prevent infinite urequest loop.
-     * If bin input is stored before bin output, urequest may be forward and
-     * cause upipe_fdec_set_flow_def to be called before we store last inner.
-     * starting an infinite loop. see comment above */
-    upipe_fdec_store_bin_output(upipe, avcdec);
-    upipe_fdec_store_bin_input(upipe, upipe_use(avcdec));
+    if (sync_options)
+        upipe_fdec_sync_options(upipe);
+
     return UBASE_ERR_NONE;
 }
 
@@ -276,7 +334,19 @@ static int upipe_fdec_set_option(struct upipe *upipe,
  */
 static int upipe_fdec_control(struct upipe *upipe, int command, va_list args)
 {
+    struct upipe_fdec *upipe_fdec = upipe_fdec_from_upipe(upipe);
+
     switch (command) {
+        case UPIPE_REGISTER_REQUEST: {
+            va_list args_dup;
+            va_copy(args_dup, args);
+            struct urequest *urequest = va_arg(args_dup, struct urequest  *);
+            if (urequest->type != UREQUEST_FLOW_FORMAT)
+                break;
+            upipe_err(upipe, "require flow format");
+            upipe_fdec_alloc_inner(upipe, urequest->uref);
+            break;
+        }
         case UPIPE_GET_OPTION: {
             const char *key = va_arg(args, const char *);
             const char **value_p = va_arg(args, const char **);
@@ -312,6 +382,7 @@ static void upipe_fdec_free(struct urefcount *urefcount_real)
         upipe_fdec_from_urefcount_real(urefcount_real);
     struct upipe *upipe = upipe_fdec_to_upipe(upipe_fdec);
     upipe_throw_dead(upipe);
+    uref_free(upipe_fdec->alloc_flow_def);
     uref_free(upipe_fdec->options);
     upipe_fdec_clean_last_inner_probe(upipe);
     upipe_fdec_clean_uref_mgr(upipe);

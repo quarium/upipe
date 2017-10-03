@@ -55,6 +55,8 @@
 #include <upipe/upipe_helper_input.h>
 #include <upipe-av/upipe_avcodec_decode.h>
 #include <upipe-framers/uref_h26x.h>
+#include <upipe-framers/uref_h26x_flow.h>
+#include <upipe/uref_dump.h>
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -1340,6 +1342,16 @@ static void upipe_avcdec_input(struct upipe *upipe, struct uref *uref,
 {
     struct upipe_avcdec *upipe_avcdec = upipe_avcdec_from_upipe(upipe);
 
+    size_t size;
+    ubase_assert(uref_block_size(uref, &size));
+    uint8_t buf[8];
+    ubase_assert(uref_block_extract(uref, 0, 8, buf));
+    upipe_err_va(upipe, "input (%zu) %02x %02x %02x %02x %02x %02x %02x %02x",
+                 size,
+                 buf[0], buf[1], buf[2], buf[3],
+                 buf[4], buf[5], buf[6], buf[7]);
+    uref_dump(upipe_avcdec->flow_def_check, upipe->uprobe);
+
     while (unlikely(!avcodec_is_open(upipe_avcdec->context))) {
         if (upipe_avcdec->upump_av_deal != NULL) {
             upipe_avcdec_hold_input(upipe, uref);
@@ -1364,6 +1376,7 @@ static int upipe_avcdec_set_flow_def(struct upipe *upipe, struct uref *flow_def)
     if (flow_def == NULL)
         return UBASE_ERR_INVALID;
 
+    upipe_err(upipe, "set flow def");
     const char *def;
     enum AVCodecID codec_id;
     AVCodec *codec;
@@ -1520,8 +1533,13 @@ static int upipe_avcdec_control(struct upipe *upipe, int command, va_list args)
     switch (command) {
         case UPIPE_REGISTER_REQUEST: {
             struct urequest *request = va_arg(args, struct urequest *);
-            if (request->type == UREQUEST_UBUF_MGR ||
-                request->type == UREQUEST_FLOW_FORMAT)
+            if (request->type == UREQUEST_FLOW_FORMAT) {
+                struct uref *uref = uref_dup(request->uref);
+                upipe_err(upipe, "set encaps");
+                uref_h26x_flow_set_encaps(uref, UREF_H26X_ENCAPS_LENGTH4);
+                return urequest_provide_flow_format(request, uref);
+            }
+            if (request->type == UREQUEST_UBUF_MGR)
                 return upipe_throw_provide_request(upipe, request);
             return upipe_avcdec_alloc_output_proxy(upipe, request);
         }
