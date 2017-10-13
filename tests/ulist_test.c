@@ -1,7 +1,9 @@
 #include <upipe/ubase.h>
 #include <upipe/ulist.h>
+#include <upipe/ulist_helper.h>
 
 #include <assert.h>
+#include <inttypes.h>
 
 struct item {
     struct uchain uchain;
@@ -9,6 +11,60 @@ struct item {
 };
 
 UBASE_FROM_TO(item, uchain, uchain, uchain)
+
+struct container {
+    struct uchain items;
+};
+
+ULIST_HELPER(container, items, item, uchain);
+ULIST_HELPER_KEY(container, items, item, uchain, id);
+#define container_foreach_items(container, item)                \
+    ulist_helper_foreach(container_iterate_items, container, item)
+#define container_delete_foreach_items(container, item, tmp)    \
+    ulist_helper_delete_foreach(container_delete_iterate_items, \
+                                container, item, tmp)
+
+static int test_helper(void)
+{
+    struct item items[8];
+    struct container container;
+    struct item *it, *tmp;
+    unsigned i = 0;
+
+    container_init_items(&container);
+
+    container_foreach_items(&container, item)
+        abort();
+
+    for (i = 0; i < UBASE_ARRAY_SIZE(items); i++) {
+        items[i].id = i;
+        container_add_items(&container, &items[i]);
+    }
+
+    i = 0;
+    container_foreach_items(&container, item)
+        i++;
+    assert(i == 8);
+
+    assert(container_find_items(&container, 5));
+
+    container_delete_foreach_items(&container, item, tmp)
+        if (item->id % 2)
+            container_delete_items(item);
+
+    assert(!container_find_items(&container, 5));
+
+    i = 0;
+    container_foreach_items(&container, item) {
+        assert(item->id % 2 == 0);
+        i++;
+    }
+    assert(i == 4);
+
+    container_flush_items(&container, NULL);
+
+    return 1;
+}
 
 int main(int argc, char **argv)
 {
@@ -76,6 +132,8 @@ int main(int argc, char **argv)
     }
 
     assert(ulist_empty(&list));
+
+    assert(test_helper());
 
     return 0;
 }
