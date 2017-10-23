@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  * Copyright (C) 2016 Open Broadcast Systems Ltd
  *
  * Authors: Rafaël Carré
@@ -305,7 +305,7 @@ static bool upipe_dveo_asi_sink_write(struct upipe *upipe, struct uref *uref,
 
         size_t uref_size;
         if (ubase_check(uref_block_size(uref, &uref_size)) &&
-            uref_size == ret) {
+            ret >= 0 && uref_size == (size_t)ret) {
             /* wrote succeeded */
             *reset_first_timestamp = false;
             break;
@@ -399,7 +399,7 @@ static bool upipe_dveo_asi_sink_output(struct upipe *upipe, struct uref *uref,
     }
 
     uint64_t cr_sys = 0;
-    if (unlikely(!ubase_check(uref_clock_get_cr_sys(uref, &cr_sys))) || cr_sys == -1) {
+    if (unlikely(!ubase_check(uref_clock_get_cr_sys(uref, &cr_sys)))) {
         upipe_warn(upipe, "received non-dated buffer");
         uref_free(uref);
         return true;

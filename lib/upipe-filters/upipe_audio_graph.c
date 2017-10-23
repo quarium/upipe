@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Open Broadcast Systems Ltd
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Rafaël Carré
  *          Christophe Massiot
@@ -287,8 +287,8 @@ static bool upipe_agraph_handle(struct upipe *upipe, struct uref *uref,
     }
 
     uint64_t h = upipe_agraph->vsize;
-    const int hred = h - (iec_scale(-8.) * h);
-    const int hyellow = h - (iec_scale(-18.) * h);
+    const unsigned hred = h - (iec_scale(-8.) * h);
+    const unsigned hyellow = h - (iec_scale(-18.) * h);
     uint8_t transparent[3] = { 0x10, 0x80, 0x80 };
     uint8_t black[3] = { 0x10, 0x80, 0x80 };
     uint8_t red[2][3] = { { 76, 85, 0xff }, { 37, 106, 191 } };
@@ -340,8 +340,8 @@ static bool upipe_agraph_handle(struct upipe *upipe, struct uref *uref,
 
         for (uint64_t i = 0; i < upipe_agraph->chan_hist; i++) {
             scale = upipe_agraph->prev[chan][i];
-            const int hmax = h - scale * h;
-            for (int row = 0; row < h; row++) {
+            const unsigned hmax = h - scale * h;
+            for (unsigned row = 0; row < h; row++) {
                 bool bright = (i == upipe_agraph->chan_hist - 1);
 
                 const uint8_t *color = row < hmax ? black :

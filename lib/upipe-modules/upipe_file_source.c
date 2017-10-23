@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -253,7 +253,8 @@ static void upipe_fsrc_worker(struct upump *upump)
         upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
         return;
     }
-    assert(output_size == upipe_fsrc->output_size);
+    assert(output_size >= 0 &&
+           (unsigned)output_size == upipe_fsrc->output_size);
 
     ssize_t ret = read(upipe_fsrc->fd, buffer, upipe_fsrc->output_size);
     uref_block_unmap(uref, 0);
@@ -286,7 +287,7 @@ static void upipe_fsrc_worker(struct upump *upump)
         upipe_fsrc->length -= ret;
     if (upipe_fsrc->uclock != NULL)
         uref_clock_set_cr_sys(uref, systime);
-    if (unlikely(ret != upipe_fsrc->output_size))
+    if (unlikely((size_t)ret != upipe_fsrc->output_size))
         uref_block_resize(uref, 0, ret);
     if (unlikely(ret == 0))
         uref_block_set_end(uref);

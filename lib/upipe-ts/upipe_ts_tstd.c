@@ -114,7 +114,7 @@ static void upipe_ts_tstd_input(struct upipe *upipe, struct uref *uref,
         upipe_warn_va(upipe, "T-STD underflow (%"PRId64" octets)",
                       -upipe_ts_tstd->fullness);
         upipe_ts_tstd->fullness = 0;
-    } else if (upipe_ts_tstd->fullness > upipe_ts_tstd->bs) {
+    } else if ((uint64_t)upipe_ts_tstd->fullness > upipe_ts_tstd->bs) {
         upipe_verbose_va(upipe, "T-STD overflow (%"PRId64" octets)",
                          upipe_ts_tstd->fullness - upipe_ts_tstd->bs);
         upipe_ts_tstd->fullness = upipe_ts_tstd->bs;

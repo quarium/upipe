@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *
@@ -731,7 +731,8 @@ static inline bool upipe_x264_need_update(struct upipe *upipe,
     return (params->i_width != width ||
             params->i_height != height ||
             params->vui.i_sar_width != upipe_x264->sar.num ||
-            params->vui.i_sar_height != upipe_x264->sar.den ||
+            params->vui.i_sar_height < 0 ||
+            (uint64_t)params->vui.i_sar_height != upipe_x264->sar.den ||
             params->vui.i_overscan != upipe_x264->overscan);
 }
 

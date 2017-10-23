@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2017-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Arnaud de Turckheim
  *
@@ -356,7 +356,7 @@ static void upipe_dvbcsa_bs_enc_input(struct upipe *upipe,
         return;
     }
 
-    if (unlikely(size <= ts_header_size)) {
+    if (unlikely(size < 0 || (unsigned)size <= ts_header_size)) {
         upipe_err(upipe, "invalid size");
         uref_block_unmap(uref, 0);
         uref_free(uref);

@@ -365,7 +365,7 @@ static void upipe_rtp_fec_correct_packets(struct upipe *upipe,
                     memcpy(dst, peek, RTP_HEADER_SIZE);
                     copy_header = false;
                 }
-                for (int i = 0; i < size - RTP_HEADER_SIZE; i++)
+                for (size_t i = 0; i < size - RTP_HEADER_SIZE; i++)
                     dst[RTP_HEADER_SIZE + i] ^= peek[RTP_HEADER_SIZE + i];
                 uref_block_peek_unmap(uref, RTP_HEADER_SIZE, payload_buf, peek);
                 processed++;

@@ -1,3 +1,28 @@
+/*
+ * Copyright (C) 2017-2018 OpenHeadend S.A.R.L.
+ *
+ * Authors: Arnaud de Turckheim
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject
+ * to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 #include <upipe/uref_dump.h>
 #include <upipe/uref_block.h>
 #include <upipe/upipe_helper_upipe.h>
@@ -57,7 +82,7 @@ static void upipe_dump_free(struct upipe *upipe)
 }
 
 static void upipe_dump_line(struct upipe *upipe, unsigned int at,
-                            uint8_t *line, int size)
+                            uint8_t *line, unsigned size)
 {
     char hex[16 * 2 + 16 + 1];
     char *tmp = hex;
@@ -112,14 +137,15 @@ static void upipe_dump_input(struct upipe *upipe, struct uref *uref,
         int size = total_size;
 
         ubase_assert(uref_block_read(uref, offset, &size, &buf));
-        assert(size != 0);
+        assert(size > 0);
 
         total_size -= size;
 
-        for (unsigned i = 0; i < size; i++, count++) {
+        for (unsigned i = 0; i < (unsigned)size; i++, count++) {
             line[count % 16] = buf[i];
 
-            if (!((count + 1) % 16) || (!total_size && (i + 1 == size)))
+            if (!((count + 1) % 16) || (!total_size &&
+                                        (i + 1 == (unsigned)size)))
                 upipe_dump_line(upipe, count - (count % 16),
                                 line, (count % 16) + 1);
         }

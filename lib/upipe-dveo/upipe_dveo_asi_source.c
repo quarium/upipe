@@ -131,7 +131,7 @@ struct upipe_dveo_asi_src {
     int fd;
 
     /** last timestamp **/
-    int64_t last_ts;
+    uint64_t last_ts;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -206,7 +206,7 @@ static struct upipe *upipe_dveo_asi_src_alloc(struct upipe_mgr *mgr,
     upipe_dveo_asi_src_init_output_size(upipe, RX_DEFAULT_SIZE);
     upipe_dveo_asi_src->fd = -1;
     upipe_dveo_asi_src->card_idx = 0;
-    upipe_dveo_asi_src->last_ts = -1;
+    upipe_dveo_asi_src->last_ts = 0;
     upipe_throw_ready(upipe);
 
     //upipe_dveo_asi_src_check(upipe, NULL);
@@ -272,7 +272,8 @@ static void upipe_dveo_asi_src_worker(struct upump *upump)
 
     /* Latter condition can happen if buffer contains data from before
      * cable unplug and after replug. Causes cr_sys with long delays */
-    if (upipe_dveo_asi_src->last_ts == -1 || systime - upipe_dveo_asi_src->last_ts > MAX_DELAY) {
+    if (upipe_dveo_asi_src->last_ts == (uint64_t)-1 ||
+        systime - upipe_dveo_asi_src->last_ts > MAX_DELAY) {
         uref_free(uref);
         upipe_dveo_asi_src->last_ts = systime;
         return;

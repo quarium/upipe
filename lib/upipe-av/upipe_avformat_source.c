@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -849,7 +849,7 @@ static void upipe_avfsrc_probe(struct upump *upump)
         return;
     }
 
-    for (int i = 0; i < context->nb_streams; i++) {
+    for (unsigned i = 0; i < context->nb_streams; i++) {
         AVStream *stream = context->streams[i];
         AVCodecContext *codec = stream->codec;
         struct uref *flow_def;
@@ -1209,7 +1209,7 @@ static void upipe_avfsrc_free(struct urefcount *urefcount_real)
         if (likely(upipe_avfsrc->url != NULL))
             upipe_notice_va(upipe, "closing URL %s", upipe_avfsrc->url);
 
-        for (int i = 0; i < upipe_avfsrc->context->nb_streams; i++)
+        for (unsigned i = 0; i < upipe_avfsrc->context->nb_streams; i++)
             if (upipe_avfsrc->context->streams[i]->codec->opaque != NULL)
                 uref_free((struct uref *)upipe_avfsrc->context->streams[i]->codec->opaque);
 

@@ -101,7 +101,7 @@ void sdi_write_cdp(const uint8_t *src, size_t src_size,
     dst[ANC_START_LEN + 7] = 0x72;
     dst[ANC_START_LEN + 8] = (0x7 << 5) | (src_size / 3);
 
-    for (int i = 0; i < src_size; i++)
+    for (size_t i = 0; i < src_size; i++)
         dst[ANC_START_LEN + 9 + i] = src[i];
 
     dst[ANC_START_LEN + 9 + src_size] = 0x74;

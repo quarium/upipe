@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 OpenHeadend S.A.R.L.
+ * Copyright (C) 2014-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -149,7 +149,7 @@ int ubuf_sound_common_plane_map(struct ubuf *ubuf, const char *channel,
     /* Check sizes - we don't actually use them. */
     if (size < 0)
         size = common->size - offset;
-    else if (unlikely(size > common->size - offset))
+    else if (unlikely((unsigned)size > common->size - offset))
         return UBASE_ERR_INVALID;
 
     if (likely(buffer_p != NULL))
@@ -179,9 +179,9 @@ int ubuf_sound_common_resize(struct ubuf *ubuf, int offset, int new_size)
         return UBASE_ERR_INVALID;
     if (unlikely(new_size == -1))
         new_size = common->size - offset;
-    if (unlikely(!offset && new_size == common->size))
+    if (unlikely(!offset && (unsigned)new_size == common->size))
         return UBASE_ERR_NONE; /* nothing to do */
-    if (unlikely(offset + new_size > common->size))
+    if (unlikely(offset + (unsigned)new_size > common->size))
         return UBASE_ERR_INVALID;
 
     for (uint8_t plane = 0; plane < common_mgr->nb_planes; plane++)

@@ -241,7 +241,8 @@ static void upipe_ts_pesd_decaps(struct upipe *upipe, struct upump **upump_p)
         return;
     }
 
-    if (upipe_ts_pesd->next_uref_size < PES_HEADER_SIZE_NOPTS + headerlength)
+    if (upipe_ts_pesd->next_uref_size <
+        (size_t)PES_HEADER_SIZE_NOPTS + headerlength)
         return;
 
     if (has_pts) {

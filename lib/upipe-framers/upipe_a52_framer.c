@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *
@@ -206,7 +206,7 @@ static bool upipe_a52f_check_frame(struct upipe *upipe, bool *ready_p)
     *ready_p = false;
     if (!ubase_check(uref_block_size(upipe_a52f->next_uref, &size)))
         return false;
-    if (size < upipe_a52f->next_frame_size)
+    if (size < (size_t)upipe_a52f->next_frame_size)
         return true;
 
     uint8_t words[2];

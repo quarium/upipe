@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -184,7 +184,7 @@ static bool upipe_s337d_check_frame(struct upipe *upipe)
         upipe_s337d->next_frame_discard = true;
         return true;
     }
-    return size >= upipe_s337d->next_frame_size + S337_PREAMBLE_SIZE;
+    return size >= (size_t)upipe_s337d->next_frame_size + S337_PREAMBLE_SIZE;
 }
 
 /** @internal @This parses a new s337 header.

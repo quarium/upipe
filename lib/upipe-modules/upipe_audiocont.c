@@ -503,7 +503,7 @@ static int upipe_audiocont_sub_extract(struct upipe *upipe, struct ubuf *ubuf,
 
                 float real_crossblend = previous ?
                                         (1. - crossblend) : crossblend;
-                for (int i = 0; i < sample_size / sizeof(float); i++)
+                for (uint8_t i = 0; i < sample_size / sizeof(float); i++)
                     ref_buffer[i] += in_buffer[i] * real_crossblend;
 
                 ref_buffer += sample_size / sizeof(float);
@@ -727,8 +727,8 @@ static void upipe_audiocont_input(struct upipe *upipe, struct uref *uref,
     while (ubase_check(uref_sound_plane_iterate(uref, &channel)) && channel) {
         float *buf;
         uref_sound_plane_write_float(uref, channel, 0, -1, &buf);
-        for (int i = 0; i < ref_size; i++)
-            for (int j = 0; j < sample_size / sizeof(float); j++)
+        for (size_t i = 0; i < ref_size; i++)
+            for (uint8_t j = 0; j < sample_size / sizeof(float); j++)
                 *buf++ = 0.;
         uref_sound_plane_unmap(uref, channel, 0, -1);
     }

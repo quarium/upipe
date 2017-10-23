@@ -144,7 +144,7 @@ static void upipe_s302f_work(struct upipe *upipe, struct upump **upump_p)
     struct upipe_s302f *upipe_s302f = upipe_s302f_from_upipe(upipe);
     uint64_t octetrate;
     uint8_t header[S302_HEADER_SIZE];
-    int audio_packet_size;
+    unsigned audio_packet_size;
     uint8_t num_channels;
     uint8_t bits_per_sample;
     uint8_t pair_length;

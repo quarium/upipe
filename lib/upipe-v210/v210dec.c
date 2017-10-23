@@ -62,7 +62,7 @@ static inline uint32_t rl32(const void *src)
 void upipe_v210_to_planar_8_c(const void *src, uint8_t *y, uint8_t *u, uint8_t *v, uintptr_t pixels)
 {
     /* unroll this to match the assembly */
-    for(int i = 0; i < pixels-5; i += 6 ){
+    for(uintptr_t i = 0; i < pixels-5; i += 6 ){
         READ_PIXELS_8(u, y, v);
         READ_PIXELS_8(y, u, y);
         READ_PIXELS_8(v, y, u);
@@ -72,7 +72,7 @@ void upipe_v210_to_planar_8_c(const void *src, uint8_t *y, uint8_t *u, uint8_t *
 
 void upipe_v210_to_planar_10_c(const void *src, uint16_t *y, uint16_t *u, uint16_t *v, uintptr_t pixels)
 {
-    for(int i = 0; i < pixels-5; i += 6 ){
+    for(uintptr_t i = 0; i < pixels-5; i += 6 ){
         READ_PIXELS_10(u, y, v);
         READ_PIXELS_10(y, u, y);
         READ_PIXELS_10(v, y, u);

@@ -228,12 +228,13 @@ static int upipe_s337f_handle(struct upipe *upipe, struct uref *uref, ssize_t sy
     if (!ubase_check(uref_sound_size(output, &out_size, NULL)))
         return UBASE_ERR_INVALID;
 
-    if (in_size < upipe_s337f->buffered_samples)
+    if (upipe_s337f->buffered_samples < 0 ||
+        in_size < (size_t)upipe_s337f->buffered_samples)
         return UBASE_ERR_INVALID;
 
     /* how much data to copy from current to buffered uref */
     size_t missing_size = in_size - upipe_s337f->buffered_samples;
-    if (missing_size < sync_pos)
+    if (sync_pos < 0 || missing_size < (size_t)sync_pos)
         upipe_verbose(upipe, "Frame too small");
 
     /* NTSC sequence */
@@ -275,7 +276,7 @@ static int upipe_s337f_handle(struct upipe *upipe, struct uref *uref, ssize_t sy
     }
 
     /* data from current uref won't be enough */
-    if (missing_size > sync_pos) {
+    if (sync_pos >= 0 && missing_size > (size_t)sync_pos) {
         upipe_verbose(upipe, "Frame too big, padding");
         size_t padding = out_size - missing_size - upipe_s337f->buffered_samples;
         memset(&out32[2*(upipe_s337f->buffered_samples + missing_size)], 0, 4 * padding);

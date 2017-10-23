@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2014-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Sebastien Gougelet
  *          Christophe Massiot
@@ -337,11 +337,11 @@ static int upipe_blit_sub_provide_flow_format(struct upipe *upipe)
             urational_simplify(&src_dar);
 
             struct urational div = urational_divide(&dest_dar, &src_dar);
-            if (div.num > div.den) {
+            if (div.num >= 0 && (uint64_t)div.num > div.den) {
                 /* Destination rectangle larger than source picture */
                 hsize = dest_hsize * div.den / div.num;
                 vsize = dest_vsize;
-            } else if (div.num < div.den) {
+            } else if (div.num < 0 || (uint64_t)div.num < div.den) {
                 /* Destination rectangle smaller than source picture */
                 hsize = dest_hsize;
                 vsize = dest_vsize * div.num / div.den;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2014 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -164,7 +164,7 @@ static bool upipe_ts_psim_merge(struct upipe *upipe, struct uref *uref,
                                                 0, PSI_HEADER_SIZE, buffer);
     assert(psi_header != NULL);
 
-    uint16_t length = psi_get_length(psi_header);
+    unsigned length = psi_get_length(psi_header);
     UBASE_FATAL(upipe, uref_block_peek_unmap(upipe_ts_psim->next_uref, 0,
                 buffer, psi_header));
 

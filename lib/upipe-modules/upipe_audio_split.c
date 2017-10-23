@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2014-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *          Christophe Massiot
@@ -240,7 +240,7 @@ static void upipe_audio_split_sub_process(struct upipe *upipe,
 
             const uint8_t *in = in_buf + in_idx * split->channel_sample_size;
             uint8_t *out = out_buf + out_idx * split->channel_sample_size;
-            int i, j;
+            size_t i, j;
             for (i = 0; i < samples; i++) {
                 for (j = 0; j < split->channel_sample_size; j++) {
                     out[j] = in[j];

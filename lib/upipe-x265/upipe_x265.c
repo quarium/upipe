@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2017-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Clément Vasseur
  *
@@ -701,7 +701,7 @@ static void upipe_x265_get_aspect_ratio(struct upipe *upipe,
     static const struct {
         int idc;
         int num;
-        int den;
+        unsigned den;
     } sar_to_idc[] = {
         {  1,   1,  1, },
         {  2,  12, 11, },
@@ -781,8 +781,9 @@ static bool upipe_x265_handle(struct upipe *upipe,
     size_t width, height;
     x265_picture pic;
     x265_nal *nals = NULL;
-    int i, size = 0, header_size = 0;
+    int size = 0, header_size = 0;
     uint32_t nals_num = 0;
+    unsigned i;
     struct ubuf *ubuf_block;
     uint8_t *buf = NULL;
     x265_param curparams;

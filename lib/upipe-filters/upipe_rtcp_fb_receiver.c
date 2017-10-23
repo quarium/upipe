@@ -195,7 +195,7 @@ static inline void upipe_rtcpfb_input_sub(struct upipe *upipe, struct uref *uref
     }
 
     uint16_t len = rtpx_get_length(rtp);
-    if ((len + 1) * 4 != s) {
+    if (((size_t)len + 1) * 4 != s) {
         upipe_warn_va(upipe, "Invalid RTP length");
         goto end;
     }

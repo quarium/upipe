@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2014-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -240,7 +240,8 @@ static void upipe_amtsrc_worker(struct upump *upump)
         upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
         return;
     }
-    assert(output_size == upipe_amtsrc->output_size);
+    assert(output_size >= 0 &&
+           (unsigned)output_size == upipe_amtsrc->output_size);
 
     int ret = amt_recvfrom(upipe_amtsrc->handle, buffer,
                            upipe_amtsrc->output_size);
@@ -255,7 +256,7 @@ static void upipe_amtsrc_worker(struct upump *upump)
     }
     if (unlikely(upipe_amtsrc->uclock != NULL))
         uref_clock_set_cr_sys(uref, systime);
-    if (unlikely(ret != upipe_amtsrc->output_size))
+    if (unlikely(ret < 0 || (unsigned)ret != upipe_amtsrc->output_size))
         uref_block_resize(uref, 0, ret);
     upipe_amtsrc_output(upipe, uref, &upipe_amtsrc->upump);
 }

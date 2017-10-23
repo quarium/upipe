@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -208,8 +208,8 @@ static int upipe_crop_prepare(struct upipe *upipe)
     OFFSET(b)
 #undef OFFSET
 
-    if (crop->hsize < loffset + roffset ||
-        crop->vsize < toffset + boffset) {
+    if ((int64_t)crop->hsize < loffset + roffset ||
+        (int64_t)crop->vsize < toffset + boffset) {
         uref_free(flow_def);
         return UBASE_ERR_INVALID;
     }

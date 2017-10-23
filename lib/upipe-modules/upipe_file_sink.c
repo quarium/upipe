@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  * Copyright (C) 2016 DVMR
  *
  * Authors: Christophe Massiot
@@ -270,7 +270,7 @@ write_buffer:
 
         size_t uref_size;
         if (ubase_check(uref_block_size(uref, &uref_size)) &&
-            uref_size == ret) {
+            ret >= 0 && uref_size == (unsigned)ret) {
             uref_free(uref);
             break;
         }

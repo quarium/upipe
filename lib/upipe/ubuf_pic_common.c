@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2014 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -242,13 +242,13 @@ int ubuf_pic_common_plane_map(struct ubuf *ubuf, const char *chroma,
         return UBASE_ERR_INVALID;
     else {
         hmsize = hsize / common_mgr->macropixel;
-        if (unlikely(hmsize > common->hmsize - hmoffset))
+        if (unlikely((unsigned)hmsize > common->hmsize - hmoffset))
             return UBASE_ERR_INVALID;
     }
     if (vsize < 0)
         vsize = common->vsize - voffset;
     else if (unlikely(vsize % vgran ||
-                      vsize > common->vsize - voffset))
+                      (unsigned)vsize > common->vsize - voffset))
         return UBASE_ERR_INVALID;
 
     if (likely(buffer_p != NULL))
@@ -315,8 +315,11 @@ int ubuf_pic_common_resize(struct ubuf *ubuf, int hskip, int vskip,
     if (unlikely(new_vsize == -1))
         new_vsize = common->vsize - vskip;
     if (unlikely(!hskip && !vskip &&
-                 new_hsize == common->hmsize * common_mgr->macropixel &&
-                 new_vsize == common->vsize))
+                 new_hsize >= 0 &&
+                 (unsigned)new_hsize ==
+                 common->hmsize * common_mgr->macropixel &&
+                 new_vsize >= 0 &&
+                 (unsigned)new_vsize == common->vsize))
         return UBASE_ERR_NONE; /* nothing to do */
 
     UBASE_RETURN(ubuf_pic_common_check_size(ubuf->mgr, new_hsize, new_vsize));
@@ -329,9 +332,9 @@ int ubuf_pic_common_resize(struct ubuf *ubuf, int hskip, int vskip,
         return UBASE_ERR_INVALID;
     if (unlikely(vskip < 0 && new_vsize < -vskip))
         return UBASE_ERR_INVALID;
-    if (unlikely(hmskip >= 0 && common->hmsize < hmskip))
+    if (unlikely(hmskip >= 0 && common->hmsize < (unsigned)hmskip))
         return UBASE_ERR_INVALID;
-    if (unlikely(vskip >= 0 && common->vsize < vskip))
+    if (unlikely(vskip >= 0 && common->vsize < (unsigned)vskip))
         return UBASE_ERR_INVALID;
 
     size_t hmoffset = common->hmprepend;
@@ -340,9 +343,9 @@ int ubuf_pic_common_resize(struct ubuf *ubuf, int hskip, int vskip,
     size_t vhigh = common->vprepend + common->vsize + common->vappend;
 
     if (likely((int)hmoffset + hmskip >= 0 &&
-               (int)hmoffset + hmskip + new_hmsize <= hmhigh &&
+               (int)hmoffset + hmskip + new_hmsize <= (int)hmhigh &&
                (int)voffset + vskip >= 0 &&
-               (int)voffset + vskip + new_vsize <= vhigh)) {
+               (int)voffset + vskip + new_vsize <= (int)vhigh)) {
         common->hmprepend += hmskip;
         common->hmappend = hmhigh - common->hmprepend - new_hmsize;
         common->hmsize = new_hmsize;

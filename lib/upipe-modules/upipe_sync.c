@@ -443,7 +443,7 @@ static bool sync_channel(struct upipe *upipe)
         int64_t pts_diff = video_pts - pts;
 
         // XXX
-        if (pts_diff > 0 && pts_diff < UCLOCK_FREQ / 1000) {
+        if (pts_diff > 0 && (uint64_t)pts_diff < UCLOCK_FREQ / 1000) {
 //            upipe_err_va(upipe, "pts diff %" PRId64 , pts_diff);
             pts_diff = 0;
         }
@@ -452,7 +452,7 @@ static bool sync_channel(struct upipe *upipe)
             size_t samples = 0;
             uref_sound_size(uref, &samples, NULL);
             uint64_t duration = UCLOCK_FREQ * samples / 48000;
-            if (pts_diff < duration) {
+            if (pts_diff < 0 || (uint64_t)pts_diff < duration) {
                 uint64_t drop_samples = pts_diff * 48000 / UCLOCK_FREQ;
                 if (drop_samples >= samples) {
                     upipe_notice_va(upipe_sync_sub_to_upipe(upipe_sync_sub),

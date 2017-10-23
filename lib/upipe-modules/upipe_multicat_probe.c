@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *
@@ -101,7 +101,7 @@ static void upipe_multicat_probe_input(struct upipe *upipe, struct uref *uref,
     } else {
         newidx = (systime - upipe_multicat_probe->rotate_offset) /
                  upipe_multicat_probe->rotate;
-        if (upipe_multicat_probe->idx != newidx) {
+        if (newidx < 0 || upipe_multicat_probe->idx != (uint64_t)newidx) {
             upipe_throw(upipe, UPROBE_MULTICAT_PROBE_ROTATE,
                         UPIPE_MULTICAT_PROBE_SIGNATURE, uref, newidx);
             upipe_multicat_probe->idx = newidx;

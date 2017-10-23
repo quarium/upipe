@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -137,12 +137,12 @@ struct upipe_h264f {
     struct ubuf *sps[H264SPS_ID_MAX];
     /** pointers to sequence parameter set extensions */
     struct ubuf *sps_ext[H264SPS_ID_MAX];
-    /** active sequence parameter set, or -1 */
-    int active_sps;
+    /** active sequence parameter set, or UINT32_MAX */
+    uint32_t active_sps;
     /** pointers to picture parameter sets */
     struct ubuf *pps[H264PPS_ID_MAX];
-    /** active picture parameter set, or -1 */
-    int active_pps;
+    /** active picture parameter set, or UINT32_MAX */
+    uint32_t active_pps;
 
     /* parsing results - headers */
     /** profile */
@@ -354,11 +354,11 @@ static struct upipe *upipe_h264f_alloc(struct upipe_mgr *mgr,
         upipe_h264f->sps[i] = NULL;
         upipe_h264f->sps_ext[i] = NULL;
     }
-    upipe_h264f->active_sps = -1;
+    upipe_h264f->active_sps = UINT32_MAX;
 
     for (i = 0; i < H264PPS_ID_MAX; i++)
         upipe_h264f->pps[i] = NULL;
-    upipe_h264f->active_pps = -1;
+    upipe_h264f->active_pps = UINT32_MAX;
 
     upipe_h264f->acquired = false;
     upipe_throw_ready(upipe);
@@ -1145,7 +1145,7 @@ static int upipe_h264f_handle_sps(struct upipe *upipe, struct ubuf *ubuf,
 
     if (upipe_h264f->active_sps == sps_id &&
         !ubase_check(ubuf_block_equal(upipe_h264f->sps[sps_id], ubuf)))
-        upipe_h264f->active_sps = -1;
+        upipe_h264f->active_sps = UINT32_MAX;
 
     if (upipe_h264f->sps[sps_id] != NULL)
         ubuf_free(upipe_h264f->sps[sps_id]);
@@ -1228,10 +1228,10 @@ static int upipe_h264f_handle_pps(struct upipe *upipe, struct ubuf *ubuf,
         return UBASE_ERR_INVALID;
     }
 
-    if (upipe_h264f->active_sps == -1 ||
+    if (upipe_h264f->active_sps == UINT32_MAX ||
         (upipe_h264f->active_pps == pps_id &&
          !ubase_check(ubuf_block_equal(upipe_h264f->pps[pps_id], ubuf)))) {
-        upipe_h264f->active_pps = -1;
+        upipe_h264f->active_pps = UINT32_MAX;
     }
 
     if (upipe_h264f->pps[pps_id] != NULL)
@@ -1272,7 +1272,7 @@ static int upipe_h264f_handle_sei_pic_timing(struct upipe *upipe,
                                              struct ubuf_block_stream *s)
 {
     struct upipe_h264f *upipe_h264f = upipe_h264f_from_upipe(upipe);
-    if (unlikely(upipe_h264f->active_sps == -1)) {
+    if (unlikely(upipe_h264f->active_sps == UINT32_MAX)) {
         upipe_warn(upipe, "discarding early picture timing SEI");
         return UBASE_ERR_NONE;
     }
@@ -1539,10 +1539,10 @@ static void upipe_h264f_handle_global_annexb(struct upipe *upipe,
         upipe_h264f->encaps_input = UREF_H26X_ENCAPS_ANNEXB;
     }
 
-    int b = 0;
+    unsigned b = 0;
     bool au_slice = false;
     do {
-        int e = b + 3;
+        unsigned e = b + 3;
         while (e < size - 3 &&
                (p[e] != 0 || p[e + 1] != 0 || p[e + 2] != 1))
             e++;
@@ -1833,7 +1833,8 @@ static int upipe_h264f_prepare_au(struct upipe *upipe, struct uref *uref)
     struct upipe_h264f *upipe_h264f = upipe_h264f_from_upipe(upipe);
     uint64_t picture_number = upipe_h264f->last_picture_number +
         (upipe_h264f->frame_num - upipe_h264f->last_frame_num);
-    if (upipe_h264f->frame_num > upipe_h264f->last_frame_num) {
+    if (upipe_h264f->last_frame_num >= 0 &&
+        upipe_h264f->frame_num > (uint32_t)upipe_h264f->last_frame_num) {
         upipe_h264f->last_frame_num = upipe_h264f->frame_num;
         upipe_h264f->last_picture_number = picture_number;
     }
@@ -2050,7 +2051,8 @@ static struct uref *upipe_h264f_prepare_annexb(struct upipe *upipe)
         return NULL;
     }
     if (upipe_h264f->au_slice_nal == UINT8_MAX ||
-        upipe_h264f->active_sps == -1 || upipe_h264f->active_pps == -1) {
+        upipe_h264f->active_sps == UINT32_MAX ||
+        upipe_h264f->active_pps == UINT32_MAX) {
         upipe_warn(upipe, "discarding data without SPS/PPS");
         upipe_h264f_consume_uref_stream(upipe, upipe_h264f->au_size);
         upipe_h264f->au_size = 0;

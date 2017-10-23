@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *          Christophe Massiot
@@ -480,7 +480,8 @@ static int upipe_avcdec_get_buffer_sound(struct AVCodecContext *context,
 
     /* Check if we have a new sample format. */
     if (unlikely(context->sample_fmt != upipe_avcdec->sample_fmt ||
-                 context->channels != upipe_avcdec->channels)) {
+                 context->channels < 0 ||
+                 (unsigned)context->channels != upipe_avcdec->channels)) {
         ubuf_mgr_release(upipe_avcdec->ubuf_mgr);
         upipe_avcdec->ubuf_mgr = NULL;
         upipe_avcdec->sample_fmt = context->sample_fmt;
@@ -835,21 +836,21 @@ static void upipe_avcdec_output_sub(struct upipe *upipe, AVSubtitle *sub,
 
     uint64_t w = 0, h = 0, x = 0, y = 0;
 
-    for (int i = 0; i < sub->num_rects; i++) {
+    for (unsigned i = 0; i < sub->num_rects; i++) {
         AVSubtitleRect *r = sub->rects[i];
 
         if (r->type != SUBTITLE_BITMAP) {
             upipe_err_va(upipe, "Not handling subtitle type %d", r->type);
             continue;
         }
-        if (w < r->w)
-            w = r->w;
-        if (h < r->h)
-            h = r->h;
-        if (x < r->x)
-            x = r->x;
-        if (y < r->y)
-            y = r->y;
+        if (r->w >= 0 && w < (uint64_t)r->w)
+            w = (uint64_t)r->w;
+        if (r->h >= 0 && h < (uint64_t)r->h)
+            h = (uint64_t)r->h;
+        if (r->x >= 0 && x < (uint64_t)r->x)
+            x = (uint64_t)r->x;
+        if (r->y >= 0 && y < (uint64_t)r->y)
+            y = (uint64_t)r->y;
     }
 
     w = w + x;
@@ -947,7 +948,7 @@ static void upipe_avcdec_output_sub(struct upipe *upipe, AVSubtitle *sub,
         }
 
         /* Decode palettized to bgra */
-        for (int i = 0; i < sub->num_rects; i++) {
+        for (unsigned i = 0; i < sub->num_rects; i++) {
             AVSubtitleRect *r = sub->rects[i];
             uint8_t *dst = buf + 4 * ((width_aligned * r->y) + r->x);
 

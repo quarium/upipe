@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2014 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *
@@ -103,7 +103,7 @@ static void upipe_htons_input(struct upipe *upipe, struct uref *uref,
     /* copy ubuf if shared or not 16b-unaligned or segmented */
     bufsize = -1;
     if (!ubase_check(uref_block_write(uref, 0, &bufsize, &buf)) ||
-        ((uintptr_t)buf & 1) || bufsize != size) {
+        ((uintptr_t)buf & 1) || bufsize < 0 || (unsigned)bufsize != size) {
         ubuf = ubuf_block_copy(uref->ubuf->mgr, uref->ubuf, 0, size);
         if (unlikely(!ubuf)) {
             upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);

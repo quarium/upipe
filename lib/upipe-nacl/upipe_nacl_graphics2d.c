@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2014-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Xavier Boulet
  *          Christophe Massiot
@@ -268,7 +268,7 @@ static bool upipe_nacl_g2d_output(struct upipe *upipe, struct uref *uref,
     /* TODO: it is possible to avoid this memcpy by creating a ubuf manager
      * allowing swscale to write directly into the image buffer. However
      * the best would be to use graphics3d-accelerated YUV transform. */
-    for (int y = 0; y < vsize; y++)
+    for (unsigned y = 0; y < vsize; y++)
         memcpy(dst + y * desc.stride, src + y * stride, 4 * hsize);
 
     upipe_nacl_g2d->ppb_imagedata_interface->Unmap(image);

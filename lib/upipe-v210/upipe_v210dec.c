@@ -266,13 +266,13 @@ static bool upipe_v210dec_handle(struct upipe *upipe, struct uref *uref,
 
     switch (v210dec->output_type) {
         case V2D_OUTPUT_PLANAR_8: {
-            for (int h = 0; h < input_vsize; h++) {
+            for (size_t h = 0; h < input_vsize; h++) {
                 uint8_t *y = output_planes[0];
                 uint8_t *u = output_planes[1];
                 uint8_t *v = output_planes[2];
                 const uint32_t *src = (uint32_t*)input_plane;
 
-                int w = (output_hsize / 6) * 6;
+                uint64_t w = (output_hsize / 6) * 6;
                 v210dec->v210_to_planar_8(src, y, u, v, w);
 
                 y += w;
@@ -303,13 +303,13 @@ static bool upipe_v210dec_handle(struct upipe *upipe, struct uref *uref,
         } break;
 
         case V2D_OUTPUT_PLANAR_10: {
-            for (int h = 0; h < input_vsize; h++) {
+            for (size_t h = 0; h < input_vsize; h++) {
                 uint16_t *y = (uint16_t*)output_planes[0];
                 uint16_t *u = (uint16_t*)output_planes[1];
                 uint16_t *v = (uint16_t*)output_planes[2];
                 const uint32_t *src = (uint32_t*)input_plane;
 
-                int w = (output_hsize / 6) * 6;
+                uint64_t w = (output_hsize / 6) * 6;
                 v210dec->v210_to_planar_10(src, y, u, v, w);
 
                 y += w;

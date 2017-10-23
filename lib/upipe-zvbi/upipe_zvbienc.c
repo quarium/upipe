@@ -88,7 +88,7 @@ static void upipe_zvbienc_input(struct upipe *upipe, struct uref *uref,
     const uint8_t *pic_data = NULL;
     size_t pic_data_size = 0;
     uref_pic_get_cea_708(uref, &pic_data, &pic_data_size);
-    for (int i = 0; i < pic_data_size/3; i++) {
+    for (size_t i = 0; i < pic_data_size/3; i++) {
         const uint8_t valid = (pic_data[3*i] >> 2) & 1;
         const uint8_t cc_type = pic_data[3*i] & 0x3;
 

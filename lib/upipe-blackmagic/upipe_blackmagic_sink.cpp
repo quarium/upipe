@@ -583,7 +583,7 @@ static void copy_samples(upipe_bmd_sink_sub *upipe_bmd_sink_sub,
     const uint8_t c = upipe_bmd_sink_sub->channels;
     const int32_t *in;
     uref_sound_read_int32_t(uref, 0, samples, &in, 1);
-    for (int i = 0; i < samples; i++)
+    for (uint64_t i = 0; i < samples; i++)
         memcpy(&out[DECKLINK_CHANNELS * (offset + i) + idx], &in[c*i], c * sizeof(int32_t));
 
     uref_sound_unmap(uref, 0, samples, 1);
@@ -1037,10 +1037,10 @@ uint32_t upipe_bmd_mode_from_flow_def(struct upipe *upipe, struct uref *flow_def
         BMDTimeScale timeScale;
         struct urational bmd_fps;
 
-        if (mode->GetWidth() != hsize)
+        if ((uint64_t)mode->GetWidth() != hsize)
             goto next;
 
-        if (mode->GetHeight() != vsize)
+        if ((uint64_t)mode->GetHeight() != vsize)
             goto next;
 
         mode->GetFrameRate(&timeValue, &timeScale);

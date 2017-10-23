@@ -258,7 +258,7 @@ static bool upipe_v210enc_handle(struct upipe *upipe, struct uref *uref,
     /* Do v210 packing */
     int line_padding = stride - ((input_hsize * 8 + 11) / 12) * 4;
     uint8_t *dst = output_plane;
-    int h, w;
+    size_t h, w;
     if (upipe_v210enc->input_bit_depth == 10) {
         const uint16_t *y = (const uint16_t *)input_planes[0];
         const uint16_t *u = (const uint16_t *)input_planes[1];

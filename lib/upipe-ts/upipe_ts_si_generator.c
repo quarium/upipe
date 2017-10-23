@@ -1104,7 +1104,7 @@ static void upipe_ts_sig_build_nit_flow_def(struct upipe *upipe)
     /* duration during which we transmit the NIT */
     int64_t duration = sig->nit_interval -
         MIN_SECTION_INTERVAL * sig->nit_nb_sections;
-    if (duration < MIN_SECTION_INTERVAL) {
+    if (duration < (int64_t)MIN_SECTION_INTERVAL) {
         upipe_warn_va(upipe, "NIT interval is too short (missing %"PRId64")",
                       MIN_SECTION_INTERVAL - duration);
         duration = MIN_SECTION_INTERVAL;
@@ -1354,7 +1354,7 @@ static void upipe_ts_sig_build_sdt_flow_def(struct upipe *upipe)
     /* duration during which we transmit the SDT */
     int64_t duration = sig->sdt_interval -
         MIN_SECTION_INTERVAL * sig->sdt_nb_sections;
-    if (duration < MIN_SECTION_INTERVAL) {
+    if (duration < (int64_t)MIN_SECTION_INTERVAL) {
         upipe_warn_va(upipe, "SDT interval is too short (missing %"PRId64")",
                       MIN_SECTION_INTERVAL - duration);
         duration = MIN_SECTION_INTERVAL;
@@ -1627,7 +1627,7 @@ static void upipe_ts_sig_build_eit_flow_def(struct upipe *upipe)
         /* duration during which we transmit the EIT */
         int64_t duration = service->eit_interval -
             MIN_SECTION_INTERVAL * service->eit_nb_sections;
-        if (duration < MIN_SECTION_INTERVAL) {
+        if (duration < (int64_t)MIN_SECTION_INTERVAL) {
             upipe_warn_va(upipe_ts_sig_service_to_upipe(service),
                           "EIT interval is too short (missing %"PRId64")",
                           MIN_SECTION_INTERVAL - duration);
@@ -1793,7 +1793,7 @@ static void upipe_ts_sig_build_tdt_flow_def(struct upipe *upipe)
 
     /* duration during which we transmit the TDT */
     int64_t duration = sig->tdt_interval - MIN_SECTION_INTERVAL;
-    if (duration < MIN_SECTION_INTERVAL) {
+    if (duration < (int64_t)MIN_SECTION_INTERVAL) {
         upipe_warn_va(upipe, "TDT interval is too short (missing %"PRId64")",
                       MIN_SECTION_INTERVAL - duration);
         duration = MIN_SECTION_INTERVAL;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *
@@ -59,7 +59,7 @@ int ubuf_pic_plane_clear(struct ubuf *ubuf, const char *chroma,
     uint8_t hsub, vsub, macropixel_size, macropixel;
     uint8_t *buf = NULL;
     bool known = true;
-    int j;
+    unsigned j;
 
     if (!ubuf)
         return UBASE_ERR_INVALID;

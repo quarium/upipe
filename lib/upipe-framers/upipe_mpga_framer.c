@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -857,8 +857,8 @@ static bool upipe_mpgaf_handle_latm_config(struct upipe *upipe,
             ubuf_block_stream_skip_bits(s, 24);
             asc_end -= 24;
         }
-        ubuf_block_stream_fill_bits(s, asc_end);
-        ubuf_block_stream_skip_bits(s, asc_end);
+        ubuf_block_stream_fill_bits(s, (unsigned)asc_end);
+        ubuf_block_stream_skip_bits(s, (unsigned)asc_end);
     }
 
     ubuf_block_stream_fill_bits(s, 3);
@@ -1322,7 +1322,7 @@ static int upipe_mpgaf_encaps_frame(struct upipe *upipe, struct uref *uref)
     upipe_mpgaf->latm_config_duration += duration;
 
     int ubuf_size = size + 2 + (config ? MAX_ASC_SIZE + 4 : 0);
-    int i;
+    unsigned i;
     for (i = 0; i + 255 < size; i += 255)
         ubuf_size++;
     if (upipe_mpgaf->encaps_output == UREF_MPGA_ENCAPS_LOAS)
@@ -1540,7 +1540,7 @@ static bool upipe_mpgaf_check_frame(struct upipe *upipe, bool *ready_p)
     *ready_p = false;
     if (!ubase_check(uref_block_size(upipe_mpgaf->next_uref, &size)))
         return false;
-    if (size < upipe_mpgaf->next_frame_size)
+    if (size < (size_t)upipe_mpgaf->next_frame_size)
         return true;
 
     uint8_t words[2];

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Open Broadcast Systems Ltd
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Rafaël Carré
  *          Christophe Massiot
@@ -291,8 +291,8 @@ static bool upipe_audiobar_handle(struct upipe *upipe, struct uref *uref,
 
     uint8_t alpha = upipe_audiobar->alpha;
     uint64_t h = upipe_audiobar->vsize;
-    const int hred = h - (iec_scale(-8.) * h);
-    const int hyellow = h - (iec_scale(-18.) * h);
+    const unsigned hred = h - (iec_scale(-8.) * h);
+    const unsigned hyellow = h - (iec_scale(-18.) * h);
     uint8_t transparent[4] = { 0x10, 0x80, 0x80, 0 };
     uint8_t black[4] = { 0x10, 0x80, 0x80, alpha };
     uint8_t red[2][4] = { { 76, 85, 0xff, alpha }, { 37, 106, 191, alpha } };
@@ -325,8 +325,8 @@ static bool upipe_audiobar_handle(struct upipe *upipe, struct uref *uref,
 
         scale = iec_scale(scale);
 
-        const int hmax = h - scale * h;
-        for (int row = 0; row < h; row++) {
+        const unsigned hmax = h - scale * h;
+        for (unsigned row = 0; row < h; row++) {
             bool bright = row > hmax;
 
             const uint8_t *color = row < hred ? red[!bright] :

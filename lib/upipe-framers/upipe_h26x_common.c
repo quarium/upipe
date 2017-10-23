@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -92,7 +92,7 @@ int upipe_h26xf_stream_get(struct ubuf_block_stream *s, uint8_t *octet_p)
  */
 uint32_t upipe_h26xf_stream_ue(struct ubuf_block_stream *s)
 {
-    int i = 1;
+    unsigned i = 1;
     while (i < 32) {
         upipe_h26xf_stream_fill_bits(s, 8);
         uint8_t octet = ubuf_block_stream_show_bits(s, 8);
@@ -106,18 +106,14 @@ uint32_t upipe_h26xf_stream_ue(struct ubuf_block_stream *s)
         ubuf_block_stream_skip_bits(s, 1);
     }
 
-    if (likely(i <= 24)) {
-        upipe_h26xf_stream_fill_bits(s, i);
-        uint32_t result = ubuf_block_stream_show_bits(s, i);
-        ubuf_block_stream_skip_bits(s, i);
-        return result - 1;
+    uint32_t result = 0;
+    if (unlikely(i > 24)) {
+        upipe_h26xf_stream_fill_bits(s, 8);
+        uint32_t result = ubuf_block_stream_show_bits(s, 8);
+        ubuf_block_stream_skip_bits(s, 8);
+        i -= 8;
+        result <<= i;
     }
-
-    upipe_h26xf_stream_fill_bits(s, 8);
-    uint32_t result = ubuf_block_stream_show_bits(s, 8);
-    ubuf_block_stream_skip_bits(s, 8);
-    i -= 8;
-    result <<= i;
     upipe_h26xf_stream_fill_bits(s, i);
     result += ubuf_block_stream_show_bits(s, i);
     ubuf_block_stream_skip_bits(s, i);

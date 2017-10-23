@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -156,16 +156,16 @@ static int uprobe_dejitter_clock_ref(struct uprobe *uprobe, struct upipe *upipe,
 
         /* calculate thresholds for drift changes, with optional slide */
         int64_t desperate_low = DRIFT_DESPERATE_LOW;
-        if (drift_rate.num > UCLOCK_FREQ + PLL_STANDARD)
+        if (drift_rate.num > (int64_t)(UCLOCK_FREQ + PLL_STANDARD))
             desperate_low += DRIFT_SLIDE;
         int64_t standard_low = DRIFT_STANDARD_LOW;
-        if (drift_rate.num > UCLOCK_FREQ)
+        if (drift_rate.num > (int64_t)UCLOCK_FREQ)
             standard_low += DRIFT_SLIDE;
         int64_t standard_high = DRIFT_STANDARD_HIGH;
-        if (drift_rate.num < UCLOCK_FREQ)
+        if (drift_rate.num < (int64_t)UCLOCK_FREQ)
             standard_high -= DRIFT_SLIDE;
         int64_t desperate_high = DRIFT_DESPERATE_HIGH;
-        if (drift_rate.num < UCLOCK_FREQ - PLL_STANDARD)
+        if (drift_rate.num < (int64_t)(UCLOCK_FREQ - PLL_STANDARD))
             desperate_high -= DRIFT_SLIDE;
 
         /* calculate wanted drift rate */
