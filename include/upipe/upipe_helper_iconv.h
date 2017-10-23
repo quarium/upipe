@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2015-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -151,7 +151,8 @@ static char *STRUCTURE##_iconv_wrapper(void *_upipe, const char *encoding,  \
         upipe_err(upipe, "couldn't allocate");                              \
         return STRUCTURE##_iconv_append_null(string, length);               \
     }                                                                       \
-    if (iconv(s->ICONV_HANDLE, &string, &length, &p, &out_length) == -1) {  \
+    if (iconv(s->ICONV_HANDLE, &string, &length, &p, &out_length) ==        \
+        (size_t)-1) {                                                       \
         upipe_warn_va(upipe, "couldn't convert from %s to %s (%m)",         \
                       encoding, NATIVE_ENCODING);                           \
         free(output);                                                       \

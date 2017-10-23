@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -139,10 +139,10 @@ static inline int ubuf_block_common_splice(struct ubuf *ubuf,
 {
     struct ubuf_block *block = ubuf_block_from_ubuf(ubuf);
     struct ubuf_block *new_block = ubuf_block_from_ubuf(new_ubuf);
-    assert(offset < block->size);
+    assert(offset < 0 || (unsigned)offset < block->size);
     new_block->offset = block->offset + offset;
     new_block->size = block->size - offset;
-    if (new_block->size > size)
+    if (size < 0 || new_block->size > (unsigned)size)
         new_block->size = size;
     new_block->total_size = size;
     new_block->buffer = block->buffer;
@@ -162,7 +162,7 @@ static inline int ubuf_block_common_splice(struct ubuf *ubuf,
                 return UBASE_ERR_ALLOC;
             new_block = ubuf_block_from_ubuf(new_block->next_ubuf);
             next_ubuf = saved_ubuf;
-            if (new_block->size > size)
+            if (size < 0 || new_block->size > (unsigned)size)
                 new_block->size = size;
             new_block->total_size = size;
             size -= new_block->size;

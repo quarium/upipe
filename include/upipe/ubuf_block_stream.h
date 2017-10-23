@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -216,7 +216,7 @@ static inline int ubuf_block_stream_init_bits(struct ubuf_block_stream *s,
                                               struct ubuf *ubuf, int offset)
 {
     UBASE_RETURN(ubuf_block_stream_init(s, ubuf, offset / 8));
-    int bits = offset % 8;
+    unsigned bits = offset % 8;
     if (bits) {
         ubuf_block_stream_fill_bits(s, bits);
         ubuf_block_stream_skip_bits(s, bits);

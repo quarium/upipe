@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2015-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -137,7 +137,7 @@ static uint8_t *STRUCTURE##_alloc_dvb_string(struct upipe *upipe,           \
     size_t tmp_available = tmp_length;                                      \
     char *p = tmp;                                                          \
     if (iconv(s->ICONV_HANDLE, (char **)&string, &length,                   \
-              &p, &tmp_available) == -1 || length) {                        \
+              &p, &tmp_available) == (size_t)-1 || length) {                \
         upipe_warn_va(upipe, "couldn't convert from %s to %s (%m)",         \
                       NATIVE_ENCODING, encoding);                           \
         *out_length_p = 0;                                                  \
