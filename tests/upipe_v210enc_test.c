@@ -80,8 +80,8 @@ static void fill_in(struct uref *uref,
     hsize /= hsub;
     hsize *= macropixel_size;
     vsize /= vsub;
-    for (int y = 0; y < vsize; y++) {
-        for (int x = 0; x < hsize; x++)
+    for (unsigned y = 0; y < vsize; y++) {
+        for (unsigned x = 0; x < hsize; x++)
             buffer[x] = value;
         buffer += stride;
     }
@@ -140,9 +140,9 @@ static void test_input(struct upipe *upipe, struct uref *uref,
     assert(w > 0);
     assert(h > 0);
 
-    for (int y = 0; y < h; y++) {
+    for (unsigned y = 0; y < h; y++) {
         uint32_t *src = (uint32_t*)buffer;
-        for (int x = 0; x < w-5; x += 6) {
+        for (unsigned x = 0; x < w-5; x += 6) {
             uint16_t a, b, c;
             READ_PIXELS_10(a, b, c);
             assert(a == (VALUE_U << 2));

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 OpenHeadend S.A.R.L.
+ * Copyright (C) 2014-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -92,15 +92,15 @@ static void test_input(struct upipe *upipe, struct uref *uref,
     uint64_t date;
     uref_clock_get_date_sys(uref, &date, &type);
     if (type != UREF_DATE_NONE) {
-        assert(date == 42 + delay);
+        assert(date == (uint64_t)(42 + delay));
     }
     uref_clock_get_date_prog(uref, &date, &type);
     if (type != UREF_DATE_NONE) {
-        assert(date == 42 + delay);
+        assert(date == (uint64_t)(42 + delay));
     }
     uref_clock_get_date_orig(uref, &date, &type);
     if (type != UREF_DATE_NONE) {
-        assert(date == 42 + delay);
+        assert(date == (uint64_t)(42 + delay));
     }
     uref_free(uref);
     nb_packets++;

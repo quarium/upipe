@@ -1,3 +1,28 @@
+/*
+ * Copyright (C) 2017-2018 OpenHeadend S.A.R.L.
+ *
+ * Authors: Arnaud de Turckheim
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject
+ * to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 #include <upipe/uuri.h>
 
 #include <assert.h>
@@ -301,7 +326,8 @@ static void test_escape(void)
         assert(uuri_escape(paths[i], escape, sizeof (escape)) >= 0);
         printf("escaped path %s -> %s\n", paths[i], escape);
 
-        assert(uuri_unescape_len(escape) <= strlen(paths[i]));
+        len = uuri_unescape_len(escape);
+        assert(len >= 0 && (size_t)len <= strlen(paths[i]));
         char unescape[strlen(paths[i]) + 1];
         assert(uuri_unescape(escape, unescape, sizeof (unescape)) >= 0);
         assert(!strcmp(paths[i], unescape));

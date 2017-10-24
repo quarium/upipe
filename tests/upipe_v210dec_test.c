@@ -85,9 +85,9 @@ static void fill_in(struct uref *uref)
     ubase_assert(uref_pic_plane_size(uref, v210_chroma, &stride, NULL, NULL, NULL));
     assert(buffer);
     ubase_assert(uref_pic_size(uref, &hsize, &vsize, NULL));
-    for (int y = 0; y < vsize; y++) {
+    for (unsigned y = 0; y < vsize; y++) {
         uint8_t *dst = buffer;
-        for (int x = 0; x < hsize - 5; x += 6) {
+        for (unsigned x = 0; x < hsize - 5; x += 6) {
             uint32_t val;
             WRITE_PIXELS_10(256, 512, 768);
             WRITE_PIXELS_10(256, 512, 768);
@@ -139,9 +139,9 @@ static void test_input(struct upipe *upipe, struct uref *uref,
     if (ubase_check(uref_pic_plane_read(uref, "y8", 0, 0, -1, -1, &buffer)) &&
         ubase_check(uref_pic_plane_size(uref, "y8", &stride, NULL, NULL, NULL))) {
         /* test y8 plane */
-        for (int y = 0; y < h; y++) {
+        for (unsigned y = 0; y < h; y++) {
             const uint8_t *src = buffer;
-            for (int x = 0; x < w-2; x += 3) {
+            for (unsigned x = 0; x < w-2; x += 3) {
                 assert(src[0] == 128);
                 assert(src[1] == 64);
                 assert(src[2] == 192);
@@ -157,9 +157,9 @@ static void test_input(struct upipe *upipe, struct uref *uref,
     else if (ubase_check(uref_pic_plane_read(uref, "y10l", 0, 0, -1, -1, &buffer)) &&
              ubase_check(uref_pic_plane_size(uref, "y10l", &stride, NULL, NULL, NULL))) {
         /* test y10 plane */
-        for (int y = 0; y < h; y++) {
+        for (unsigned y = 0; y < h; y++) {
             const uint16_t *src = (uint16_t*)buffer;
-            for (int x = 0; x < w-2; x += 3) {
+            for (unsigned  x = 0; x < w-2; x += 3) {
                 assert(src[0] == 512);
                 assert(src[1] == 256);
                 assert(src[2] == 768);

@@ -70,7 +70,7 @@ static void block_fill_in(struct ubuf *ubuf)
     uint8_t *buffer;
     ubase_assert(ubuf_block_write(ubuf, 0, &block_size, &buffer));
 
-    for (int x = 0; x < size; x++)
+    for (size_t x = 0; x < size; x++)
         buffer[x] = x;
 
     ubase_assert(ubuf_block_unmap(ubuf, 0));
@@ -224,7 +224,7 @@ int main(int argc, char **argv)
     int no_samples = block_size/ sample_size;
     size_t size;
     ubase_assert(ubuf_sound_size(output->ubuf, &size, &sample_size));
-    assert(size == no_samples);
+    assert(no_samples >= 0 && size == (unsigned)no_samples);
     assert(sample_size == 8);
 
     const int32_t *r;

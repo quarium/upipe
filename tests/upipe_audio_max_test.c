@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -165,7 +165,7 @@ static void fill_in(struct ubuf *ubuf)
         ubase_assert(ubuf_sound_plane_write_int16_t(ubuf, channel, 0, -1,
                                                     &buffer));
 
-        for (int x = 0; x < size; x++)
+        for (unsigned x = 0; x < size; x++)
             buffer[x] = v++;
         ubase_assert(ubuf_sound_plane_unmap(ubuf, channel, 0, -1));
     }

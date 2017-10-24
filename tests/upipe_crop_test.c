@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -91,8 +91,8 @@ static void fill_in(struct uref *uref, const char *chroma, uint8_t val)
     hsize /= hsub;
     hsize *= macropixel_size;
     vsize /= vsub;
-    for (int y = 0; y < vsize; y++) {
-        for (int x = 0; x < hsize; x++)
+    for (unsigned y = 0; y < vsize; y++) {
+        for (unsigned x = 0; x < hsize; x++)
             buffer[x] = val++;
         buffer += stride;
     }

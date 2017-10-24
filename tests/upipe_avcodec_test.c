@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen <bencoh@notk.org>
  *
@@ -170,7 +170,7 @@ static void fill_pic(struct ubuf *ubuf)
     const char *chroma = NULL;
     uint8_t *buf, hsub, vsub;
     size_t stride, width, height;
-    int i, j;
+    unsigned i, j;
 
     ubuf_pic_size(ubuf, &width, &height, NULL);
     while (ubase_check(ubuf_pic_plane_iterate(ubuf, &chroma)) && chroma) {

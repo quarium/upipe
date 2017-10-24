@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -95,8 +95,8 @@ static void check_data(struct uref *uref, size_t offset, size_t size)
     int read_size = size;
     const uint8_t *r;
     ubase_assert(uref_block_read(uref, offset, &read_size, &r));
-    assert(read_size == size);
-    for (int i = 0; i < size; i++) {
+    assert(read_size >= 0 && (unsigned)read_size == size);
+    for (unsigned i = 0; i < size; i++) {
         assert(r[i] == i % 256);
     }
     uref_block_unmap(uref, offset);
@@ -243,7 +243,7 @@ static void write_adts(uint8_t *buffer)
 
 static void write_data(uint8_t *buffer, size_t size)
 {
-    for (int i = 0; i < size; i++)
+    for (unsigned i = 0; i < size; i++)
         buffer[i] = i % 256;
 }
 

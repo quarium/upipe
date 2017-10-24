@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2016-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -78,7 +78,7 @@ static void pic_fill_in(struct ubuf *ubuf)
         uint8_t *buffer;
         ubase_assert(ubuf_pic_plane_write(ubuf, chroma, 0, 0, -1, -1, &buffer));
 
-        for (int y = 0; y < vsize / vsub; y++) {
+        for (unsigned y = 0; y < vsize / vsub; y++) {
             for (int x = 0; x < hoctets; x++)
                 buffer[x] = 1 + (y * hoctets) + x;
             buffer += stride;

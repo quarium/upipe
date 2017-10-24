@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen
  *
@@ -325,7 +325,7 @@ int main (int argc, char **argv)
         pgm_prefix = argv[optind++];
     }
 
-    int i, j;
+    unsigned i, j;
 
     /* uref and mem management */
     struct umem_mgr *umem_mgr = umem_alloc_mgr_alloc();
@@ -468,7 +468,7 @@ int main (int argc, char **argv)
     if (thread_num > 0) {
         struct thread thread[thread_num];
         printf("Allocating %d avcdec pipes\n", thread_num);
-        for (i=0; i < thread_num; i++) {
+        for (i=0; i < (unsigned)thread_num; i++) {
             memset(&thread[i], 0, sizeof(struct thread));
             thread[i].num = i;
             thread[i].iteration = 0;
@@ -505,12 +505,12 @@ int main (int argc, char **argv)
         }
 
         // Fire threads
-        for (i=0; i < thread_num; i++) {
+        for (i=0; i < (unsigned)thread_num; i++) {
             assert(pthread_create(&thread[i].id, NULL, test_thread, &thread[i]) == 0);
         }
         // Join (wait for threads to exit)
         // pipes are cleaned in their respective thread
-        for (i=0; i < thread_num; i++) {
+        for (i=0; i < (unsigned)thread_num; i++) {
             assert(!pthread_join(thread[i].id, NULL));
             avformat_close_input(&thread[i].avfctx);
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2014 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -78,7 +78,7 @@ static int catch(struct uprobe *uprobe, struct upipe *upipe,
         case UPROBE_NEW_FLOW_DEF:
             break;
         case UPROBE_SYNC_LOST:
-            assert(expect_loss == nb_packets);
+            assert(expect_loss >= 0 && (unsigned)expect_loss == nb_packets);
             break;
     }
     return UBASE_ERR_NONE;

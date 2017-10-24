@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2016 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -278,7 +278,7 @@ int main(int argc, char **argv)
     uint32_t bits = ubuf_block_stream_show_bits(&s, 1);
     ubuf_block_stream_skip_bits(&s, 1);
     assert(!bits);
-    for (int i = 0; i < 64; i++) {
+    for (unsigned i = 0; i < 64; i++) {
         ubuf_block_stream_fill_bits(&s, 8);
         bits = ubuf_block_stream_show_bits(&s, 8);
         ubuf_block_stream_skip_bits(&s, 8);

@@ -173,7 +173,7 @@ static void fill_in(struct ubuf *ubuf)
         ubase_assert(ubuf_sound_plane_write_int16_t(ubuf, channel, 0, -1,
                                                     &buffer));
 
-        for (int x = 0; x < size; x++) {
+        for (size_t x = 0; x < size; x++) {
             buffer[2*x+0] = v++;
             buffer[2*x+1] = v++;
         }

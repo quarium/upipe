@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2017-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -81,7 +81,7 @@ static void dump_variable(const char *variable,
 {
     printf("static const uint8_t %s[%zu] = {\n", variable, size);
 
-    for (int i = 0; i < size; i++) {
+    for (size_t i = 0; i < size; i++) {
         printf("0x%02"PRIx8, buffer[i]);
         if (i != size - 1)
             printf(", ");
@@ -198,7 +198,7 @@ static void fill_pic(struct uref *uref, int counter)
         uint8_t *buffer;
         assert(ubase_check(uref_pic_plane_write(uref, chroma, 0, 0, -1, -1, &buffer)));
 
-        for (int y = 0; y < vsize / vsub; y++) {
+        for (unsigned y = 0; y < vsize / vsub; y++) {
             for (int x = 0; x < hoctets; x++)
                 buffer[x] = 1 + (y * hoctets) + x + counter * 5;
             buffer += stride;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 OpenHeadend S.A.R.L.
+ * Copyright (C) 2012-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Benjamin Cohen <bencoh@notk.org>
  *
@@ -135,8 +135,8 @@ static void fill_in(struct uref *uref,
     hsize /= hsub;
     hsize *= macropixel_size;
     vsize /= vsub;
-    for (int y = 0; y < vsize; y++) {
-        for (int x = 0; x < hsize; x++)
+    for (unsigned y = 0; y < vsize; y++) {
+        for (unsigned x = 0; x < hsize; x++)
             buffer[x] = 1 + (y * hsize) + x;
         buffer += stride;
     }
@@ -150,7 +150,7 @@ static bool compare_chroma(struct uref **urefs, const char *chroma, uint8_t hsub
     size_t hsize[2], vsize[2];
     int stride[2];
     uint8_t *buffer[2];
-    int i, x, y;
+    unsigned i, x, y;
 
     assert(urefs);
     assert(chroma);

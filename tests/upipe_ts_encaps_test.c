@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2013-2018 OpenHeadend S.A.R.L.
  *
  * Authors: Christophe Massiot
  *
@@ -106,7 +106,7 @@ static int catch(struct uprobe *uprobe, struct upipe *upipe,
 static void check_buffer(const uint8_t *buffer, size_t size,
                          size_t *total_size_p)
 {
-    int i;
+    unsigned i;
     for (i = 0; i < size; i++)
         assert(buffer[i] == (*total_size_p)-- % 256);
 }
@@ -174,7 +174,7 @@ static void check_ubuf(struct ubuf *ubuf, uint8_t stream_id, bool unitstart,
             assert(size >= PES_HEADER_SIZE);
             assert(pes_validate(buffer));
             assert(pes_get_streamid(buffer) == stream_id);
-            uint16_t pes_size = pes_get_length(buffer);
+            unsigned pes_size = pes_get_length(buffer);
             if (stream_id != PES_STREAM_ID_PRIVATE_2) {
                 assert(size >= PES_HEADER_SIZE_NOPTS);
                 assert(pes_validate_header(buffer));
@@ -291,8 +291,8 @@ int main(int argc, char *argv[])
     assert(uref != NULL);
     size = -1;
     ubase_assert(uref_block_write(uref, 0, &size, &buffer));
-    assert(size == total_size);
-    int i;
+    assert(size >= 0 && (size_t)size == total_size);
+    unsigned i;
     for (i = 0; i < total_size; i++)
         buffer[i] = (total_size - i) % 256;
     uref_block_unmap(uref, 0);
@@ -382,7 +382,7 @@ int main(int argc, char *argv[])
     assert(uref != NULL);
     size = -1;
     ubase_assert(uref_block_write(uref, 0, &size, &buffer));
-    assert(size == total_size);
+    assert(size >= 0 && (size_t)size == total_size);
     for (i = 0; i < total_size; i++)
         buffer[i] = (total_size - i) % 256;
     uref_block_unmap(uref, 0);
@@ -586,7 +586,7 @@ int main(int argc, char *argv[])
     assert(uref != NULL);
     size = -1;
     ubase_assert(uref_block_write(uref, 0, &size, &buffer));
-    assert(size == total_size);
+    assert(size >= 0 && (unsigned)size == total_size);
     for (i = 0; i < total_size; i++)
         buffer[i] = (total_size - i) % 256;
     uref_block_unmap(uref, 0);

@@ -620,7 +620,7 @@ void *checkasm_check_func(void *func, const char *name, ...)
     name_length = vsnprintf(name_buf, sizeof(name_buf), name, arg);
     va_end(arg);
 
-    if (!func || name_length <= 0 || name_length >= sizeof(name_buf))
+    if (!func || name_length <= 0 || (unsigned)name_length >= sizeof(name_buf))
         return NULL;
 
     state.current_func = get_func(&state.funcs, name_buf);
