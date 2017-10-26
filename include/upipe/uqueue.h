@@ -43,11 +43,65 @@ extern "C" {
 
 #include <stdint.h>
 #include <assert.h>
+#include <pthread.h>
+
+/** @This enumerates the uqueue implementation type. */
+enum uqueue_type {
+    /** use atomic */
+    UQUEUE_ATOMIC,
+    /** use mutex */
+    UQUEUE_MUTEX,
+    /** use mutex second implementation */
+    UQUEUE_MUTEX2,
+    /** use mutex with buffer list */
+    UQUEUE_MUTEX_LIST,
+    /** use only event fd */
+    UQUEUE_EVENTFD,
+    /** uqueue abort */
+    UQUEUE_ABORT,
+};
+
+/** @This is am uqueue element. */
+struct uqueue_elt {
+    /** link in the current list */
+    struct uchain uchain;
+    /** opaque object */
+    void *opaque;
+};
+
+UBASE_FROM_TO(uqueue_elt, uchain, uchain, uchain);
 
 /** @This is the implementation of a queue. */
 struct uqueue {
-    /** FIFO */
-    struct ufifo fifo;
+    /** uqueue type */
+    enum uqueue_type type;
+    union {
+        struct {
+            /** FIFO */
+            struct ufifo fifo;
+        };
+        struct {
+            /** mutex */
+            pthread_mutex_t mutex;
+            /** extra data */
+            struct uqueue_elt *elts;
+            /** empty slots */
+            struct uchain empty;
+            /** carrier slots */
+            struct uchain carrier;
+            /** pop list */
+            struct uchain ready;
+        };
+        struct {
+            unsigned in;
+            unsigned in_count;
+            int in_fd;
+            unsigned out;
+            unsigned out_count;
+            int out_fd;
+            void **extra;
+        };
+    };
     /** number of elements in the queue */
     uatomic_uint32_t counter;
     /** maximum number of elements in the queue */
@@ -58,12 +112,46 @@ struct uqueue {
     struct ueventfd event_pop;
 };
 
+/** @This gets the uqueue implemenation */
+static inline enum uqueue_type uqueue_type_get(void)
+{
+    const char *e = getenv("UPIPE_UQUEUE_TYPE");
+    if (e == NULL)
+        return UQUEUE_ATOMIC;
+    if (!strcmp(e, "mutex"))
+        return UQUEUE_MUTEX;
+    if (!strcmp(e, "mutex2"))
+        return UQUEUE_MUTEX2;
+    if (!strcmp(e, "mutex_list"))
+        return UQUEUE_MUTEX_LIST;
+    if (!strcmp(e, "eventfd"))
+        return UQUEUE_EVENTFD;
+    if (!strcmp(e, "abort"))
+        return UQUEUE_ABORT;
+    return UQUEUE_ATOMIC;
+}
+
 /** @This returns the required size of extra data space for uqueue.
  *
  * @param length maximum number of elements in the queue
  * @return size in octets to allocate
  */
-#define uqueue_sizeof(length) ufifo_sizeof(length)
+static inline unsigned uqueue_sizeof(unsigned length)
+{
+    switch (uqueue_type_get()) {
+        case UQUEUE_ATOMIC:
+            return ufifo_sizeof(length);
+        case UQUEUE_MUTEX:
+        case UQUEUE_MUTEX2:
+        case UQUEUE_MUTEX_LIST:
+            return length * sizeof (struct uqueue_elt);
+        case UQUEUE_EVENTFD:
+            return length * sizeof (void *);
+        case UQUEUE_ABORT:
+            return 0;
+    }
+    return 0;
+}
 
 /** @This initializes a uqueue.
  *
@@ -83,9 +171,42 @@ static inline bool uqueue_init(struct uqueue *uqueue, uint8_t length,
         return false;
     }
 
-    ufifo_init(&uqueue->fifo, length, extra);
+    switch (uqueue_type_get()) {
+        case UQUEUE_ATOMIC:
+            uqueue->type = UQUEUE_ATOMIC;
+            ufifo_init(&uqueue->fifo, length, extra);
+            break;
+
+        case UQUEUE_MUTEX:
+        case UQUEUE_MUTEX2:
+        case UQUEUE_MUTEX_LIST:
+            uqueue->type = UQUEUE_MUTEX;
+            pthread_mutex_init(&uqueue->mutex, 0);
+            uqueue->elts = (struct uqueue_elt *)extra;
+            ulist_init(&uqueue->empty);
+            ulist_init(&uqueue->carrier);
+            ulist_init(&uqueue->ready);
+            for (uint8_t i = 0; i < length; i++)
+                ulist_add(&uqueue->empty, &uqueue->elts[i].uchain);
+            break;
+        case UQUEUE_EVENTFD:
+            uqueue->type = UQUEUE_EVENTFD;
+            uqueue->extra = (void **)extra;
+            uqueue->in = 0;
+            uqueue->in_count = length;
+            uqueue->in_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+            uqueue->out = 0;
+            uqueue->out_count = 0;
+            uqueue->out_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+            if (unlikely(uqueue->in_fd < 0 || uqueue->out_fd < 0))
+                return false;
+            break;
+        case UQUEUE_ABORT:
+            break;
+    }
     uatomic_init(&uqueue->counter, 0);
     uqueue->length = length;
+
     return true;
 }
 
@@ -135,21 +256,95 @@ static inline struct upump *uqueue_upump_alloc_pop(struct uqueue *uqueue,
  */
 static inline bool uqueue_push(struct uqueue *uqueue, void *element)
 {
-    if (unlikely(!ufifo_push(&uqueue->fifo, element))) {
-        /* signal that we are full */
-        ueventfd_read(&uqueue->event_push);
+    switch (uqueue->type) {
+        case UQUEUE_ATOMIC:
+            if (unlikely(!ufifo_push(&uqueue->fifo, element))) {
+                /* signal that we are full */
+                ueventfd_read(&uqueue->event_push);
 
-        /* double-check */
-        if (likely(!ufifo_push(&uqueue->fifo, element)))
-            return false;
+                /* double-check */
+                if (likely(!ufifo_push(&uqueue->fifo, element)))
+                    return false;
 
-        /* signal that we're alright again */
-        ueventfd_write(&uqueue->event_push);
+                /* signal that we're alright again */
+                ueventfd_write(&uqueue->event_push);
+            }
+
+            if (unlikely(uatomic_fetch_add(&uqueue->counter, 1) == 0))
+                ueventfd_write(&uqueue->event_pop);
+            return true;
+
+        case UQUEUE_MUTEX: {
+            bool pushed = false;
+
+            ueventfd_read(&uqueue->event_push);
+
+            assert(!pthread_mutex_lock(&uqueue->mutex));
+            struct uchain *uchain = ulist_pop(&uqueue->empty);
+            if (likely(uchain)) {
+                uqueue_elt_from_uchain(uchain)->opaque = element;
+                ulist_add(&uqueue->carrier, uchain);
+                pushed = true;
+            }
+            pthread_mutex_unlock(&uqueue->mutex);
+
+            if (!pushed)
+                return false;
+            ueventfd_write(&uqueue->event_push);
+            if (unlikely(uatomic_fetch_add(&uqueue->counter, 1) == 0))
+                ueventfd_write(&uqueue->event_pop);
+            return true;
+        }
+
+        case UQUEUE_MUTEX2:
+        case UQUEUE_MUTEX_LIST: {
+            bool pushed = false;
+
+            assert(!pthread_mutex_lock(&uqueue->mutex));
+
+            struct uchain *uchain = ulist_pop(&uqueue->empty);
+            if (likely(uchain)) {
+                uqueue_elt_from_uchain(uchain)->opaque = element;
+                ulist_add(&uqueue->carrier, uchain);
+                pushed = true;
+            }
+            if (!pushed)
+                ueventfd_read(&uqueue->event_push);
+            else {
+                ueventfd_write(&uqueue->event_push);
+                if (unlikely(uatomic_fetch_add(&uqueue->counter, 1) == 0))
+                    ueventfd_write(&uqueue->event_pop);
+            }
+            pthread_mutex_unlock(&uqueue->mutex);
+
+            return pushed;
+        }
+        case UQUEUE_EVENTFD: {
+            int ret;
+
+            if (!uqueue->in_count) {
+                eventfd_t efd;
+                ret = eventfd_read(uqueue->in_fd, &efd);
+                assert(ret == 0 || errno == EWOULDBLOCK);
+                uqueue->in_count += !ret ? efd : 0;
+            }
+            if (!uqueue->in_count) {
+                ueventfd_read(&uqueue->event_push);
+                return false;
+            }
+            uqueue->extra[uqueue->in] = element;
+            uqueue->in = (uqueue->in + 1) % uqueue->length;
+            uqueue->in_count--;
+            ret = eventfd_write(uqueue->out_fd, 1);
+            assert(ret == 0);
+            ueventfd_write(&uqueue->event_pop);
+            return true;
+        }
+        case UQUEUE_ABORT:
+            abort();
+            break;
     }
-
-    if (unlikely(uatomic_fetch_add(&uqueue->counter, 1) == 0))
-        ueventfd_write(&uqueue->event_pop);
-    return true;
+    return false;
 }
 
 /** @internal @This pops an element from the queue.
@@ -159,22 +354,124 @@ static inline bool uqueue_push(struct uqueue *uqueue, void *element)
  */
 static inline void *uqueue_pop_internal(struct uqueue *uqueue)
 {
-    void *element = ufifo_pop(&uqueue->fifo, void *);
-    if (unlikely(element == NULL)) {
-        /* signal that we starve */
-        ueventfd_read(&uqueue->event_pop);
+    void *element = NULL;
 
-        /* double-check */
-        element = ufifo_pop(&uqueue->fifo, void *);
-        if (likely(element == NULL))
-            return NULL;
+    switch (uqueue->type) {
+        case UQUEUE_ATOMIC: {
+            element = ufifo_pop(&uqueue->fifo, void *);
+            if (unlikely(element == NULL)) {
+                /* signal that we starve */
+                ueventfd_read(&uqueue->event_pop);
 
-        /* signal that we're alright again */
-        ueventfd_write(&uqueue->event_pop);
+                /* double-check */
+                element = ufifo_pop(&uqueue->fifo, void *);
+                if (likely(element == NULL))
+                    return NULL;
+
+                /* signal that we're alright again */
+                ueventfd_write(&uqueue->event_pop);
+            }
+
+            if (unlikely(uatomic_fetch_sub(&uqueue->counter, 1) ==
+                         uqueue->length))
+                ueventfd_write(&uqueue->event_push);
+            break;
+        }
+
+        case UQUEUE_MUTEX: {
+            ueventfd_read(&uqueue->event_pop);
+
+            assert(!pthread_mutex_lock(&uqueue->mutex));
+            struct uchain *uchain = ulist_pop(&uqueue->carrier);
+            if (likely(uchain)) {
+                element = uqueue_elt_from_uchain(uchain)->opaque;
+                ulist_add(&uqueue->empty, uchain);
+            }
+            pthread_mutex_unlock(&uqueue->mutex);
+
+            if (!element)
+                break;
+
+            ueventfd_write(&uqueue->event_pop);
+            if (unlikely(uatomic_fetch_sub(&uqueue->counter, 1) ==
+                         uqueue->length))
+                ueventfd_write(&uqueue->event_push);
+            break;
+        }
+
+        case UQUEUE_MUTEX2: {
+            assert(!pthread_mutex_lock(&uqueue->mutex));
+            struct uchain *uchain = ulist_pop(&uqueue->carrier);
+            if (likely(uchain)) {
+                element = uqueue_elt_from_uchain(uchain)->opaque;
+                ulist_add(&uqueue->empty, uchain);
+            }
+            if (!element)
+                ueventfd_read(&uqueue->event_pop);
+            else {
+                ueventfd_write(&uqueue->event_pop);
+                if (unlikely(uatomic_fetch_sub(&uqueue->counter, 1) ==
+                             uqueue->length))
+                    ueventfd_write(&uqueue->event_push);
+            }
+            pthread_mutex_unlock(&uqueue->mutex);
+            break;
+        }
+
+        case UQUEUE_MUTEX_LIST: {
+            struct uchain *uchain = ulist_pop(&uqueue->ready);
+            if (uchain) {
+                element = uqueue_elt_from_uchain(uchain)->opaque;
+                break;
+            }
+            assert(!pthread_mutex_lock(&uqueue->mutex));
+            while ((uchain = ulist_pop(&uqueue->carrier))) {
+                ulist_add(&uqueue->ready, uchain);
+            }
+            uchain = ulist_pop(&uqueue->carrier);
+            if (likely(uchain)) {
+                element = uqueue_elt_from_uchain(uchain)->opaque;
+                ulist_add(&uqueue->empty, uchain);
+            }
+            if (!element)
+                ueventfd_read(&uqueue->event_pop);
+            else {
+                ueventfd_write(&uqueue->event_pop);
+                if (unlikely(uatomic_fetch_sub(&uqueue->counter, 1) ==
+                             uqueue->length))
+                    ueventfd_write(&uqueue->event_push);
+            }
+            pthread_mutex_unlock(&uqueue->mutex);
+            break;
+        }
+
+        case UQUEUE_EVENTFD: {
+            int ret;
+
+            if (!uqueue->out_count) {
+                eventfd_t efd;
+                ret = eventfd_read(uqueue->out_fd, &efd);
+                assert(ret == 0 || errno == EWOULDBLOCK);
+                uqueue->out_count += !ret ? efd : 0;
+            }
+            if (!uqueue->out_count) {
+                ueventfd_read(&uqueue->event_pop);
+                return NULL;
+            }
+
+            element = uqueue->extra[uqueue->out];
+            uqueue->out = (uqueue->out + 1) % uqueue->length;
+            uqueue->out_count--;
+            ret = eventfd_write(uqueue->in_fd, 1);
+            assert(ret == 0);
+            ueventfd_write(&uqueue->event_push);
+            break;
+        }
+
+        case UQUEUE_ABORT:
+            abort();
+            break;
     }
-
-    if (unlikely(uatomic_fetch_sub(&uqueue->counter, 1) == uqueue->length))
-        ueventfd_write(&uqueue->event_push);
     return element;
 }
 
@@ -203,7 +500,20 @@ static inline unsigned int uqueue_length(struct uqueue *uqueue)
 static inline void uqueue_clean(struct uqueue *uqueue)
 {
     uatomic_clean(&uqueue->counter);
-    ufifo_clean(&uqueue->fifo);
+    switch (uqueue->type) {
+        case UQUEUE_ATOMIC:
+            ufifo_clean(&uqueue->fifo);
+            break;
+        case UQUEUE_MUTEX:
+        case UQUEUE_MUTEX2:
+        case UQUEUE_MUTEX_LIST:
+            pthread_mutex_destroy(&uqueue->mutex);
+            break;
+        case UQUEUE_EVENTFD:
+            break;
+        case UQUEUE_ABORT:
+            break;
+    }
     ueventfd_clean(&uqueue->event_push);
     ueventfd_clean(&uqueue->event_pop);
 }

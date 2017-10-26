@@ -69,7 +69,7 @@
 #include <assert.h>
 #include <getopt.h>
 
-#define UMEM_POOL                       128
+#define UMEM_POOL                       4096
 #define UPUMP_POOL                      5
 #define UPUMP_BLOCKER_POOL              5
 #define UDICT_POOL_DEPTH                500
@@ -229,25 +229,19 @@ int main(int argc, char *argv[])
         upump_ev_mgr_alloc_default(UPUMP_POOL, UPUMP_BLOCKER_POOL);
     assert(upump_mgr);
 
-    struct umem_mgr *umem_mgr = umem_pool_mgr_alloc(32, 18,
+#if 0
+    struct umem_mgr *umem_mgr = umem_pool_mgr_alloc(32, 8,
                                UMEM_POOL, /* 32 */
                                UMEM_POOL, /* 64 */
                                UMEM_POOL, /* 128 */
-                               16384, /* 256 */
+                               UMEM_POOL, /* 256 */
                                UMEM_POOL, /* 512 */
                                UMEM_POOL, /* 1 Ki */
-                               UMEM_POOL, /* 2 Ki */
-                               UMEM_POOL, /* 4 Ki */
-                               UMEM_POOL / 2, /* 8 Ki */
-                               UMEM_POOL / 2, /* 16 Ki */
-                               UMEM_POOL / 2, /* 32 Ki */
-                               UMEM_POOL / 4, /* 64 Ki */
-                               UMEM_POOL / 4, /* 128 Ki */
-                               UMEM_POOL / 4, /* 256 Ki */
-                               UMEM_POOL / 4, /* 512 Ki */
-                               UMEM_POOL / 8, /* 1 Mi */
-                               UMEM_POOL / 8, /* 2 Mi */
-                               UMEM_POOL / 8); /* 4 Mi */
+                               UMEM_POOL / 2, /* 2 Ki */
+                               UMEM_POOL / 2); /* 4 Ki */
+#else
+    struct umem_mgr *umem_mgr = umem_alloc_mgr_alloc();
+#endif
     assert(umem_mgr);
 
     struct udict_mgr *udict_mgr = udict_inline_mgr_alloc(UDICT_POOL_DEPTH,

@@ -40,6 +40,7 @@ extern "C" {
 
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 
 #ifdef UPIPE_HAVE_EVENTFD
 #include <unistd.h>
@@ -113,13 +114,12 @@ static inline struct upump *ueventfd_upump_alloc(struct ueventfd *fd,
  * @param fd pointer to a ueventfd
  * @return false in case of an unrecoverable error
  */
-static inline bool ueventfd_read(struct ueventfd *fd)
+static inline bool ueventfd_read_value(struct ueventfd *fd, uint64_t *value)
 {
 #ifdef UPIPE_HAVE_EVENTFD
     if (likely(fd->mode == UEVENTFD_MODE_EVENTFD)) {
         for ( ; ; ) {
-            eventfd_t event;
-            int ret = eventfd_read(fd->event_fd, &event);
+            int ret = eventfd_read(fd->event_fd, value);
             if (likely(ret != -1))
                 return true;
             switch (errno) {
@@ -138,9 +138,77 @@ static inline bool ueventfd_read(struct ueventfd *fd)
 #endif
     if (likely(fd->mode == UEVENTFD_MODE_PIPE)) {
         for ( ; ; ) {
-            char buf[256];
+            uint64_t buf[32];
             ssize_t ret = read((fd->pipe_fds)[0], buf, sizeof(buf));
             if (unlikely(ret == 0)) return true;
+            if (likely(ret == -1)) {
+                switch (errno) {
+                    case EAGAIN:
+#if EAGAIN != EWOULDBLOCK
+                    case EWOULDBLOCK:
+#endif
+                        return true;
+                    case EINTR:
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            if (ret % sizeof (uint64_t))
+                return false;
+            for (unsigned i = 0; i < ret / 4; i++)
+                *value += buf[i];
+        }
+    } else {
+        return false; // shouldn't happen
+    }
+}
+
+/** @This reads from a ueventfd and makes it non-readable.
+ *
+ * @param fd pointer to a ueventfd
+ * @return false in case of an unrecoverable error
+ */
+static inline bool ueventfd_read(struct ueventfd *fd)
+{
+    uint64_t value;
+    return ueventfd_read_value(fd, &value);
+}
+
+/** @This writes to a ueventfd and make it readable.
+ *
+ * @param fd pointer to a ueventfd
+ * @return false in case of an unrecoverable error
+ */
+static inline bool ueventfd_write_value(struct ueventfd *fd, uint64_t value)
+{
+#ifdef UPIPE_HAVE_EVENTFD
+    if (likely(fd->mode == UEVENTFD_MODE_EVENTFD)) {
+        for ( ; ; ) {
+            int ret = eventfd_write(fd->event_fd, value);
+            if (likely(ret != -1))
+                return true;
+            switch (errno) {
+                case EAGAIN:
+#if EAGAIN != EWOULDBLOCK
+                case EWOULDBLOCK:
+#endif
+                    return true;
+                case EINTR:
+                    break;
+                default:
+                    return false;
+            }
+        }
+    } else
+#endif
+    if (likely(fd->mode == UEVENTFD_MODE_PIPE)) {
+        for ( ; ; ) {
+            /* check for read/write atomicity */
+            if (PIPE_BUF < sizeof (value))
+                return false;
+            ssize_t ret = write((fd->pipe_fds)[1], &value, sizeof(value));
+            if (likely(ret == 4)) return true;
             if (likely(ret == -1)) {
                 switch (errno) {
                     case EAGAIN:
@@ -167,49 +235,7 @@ static inline bool ueventfd_read(struct ueventfd *fd)
  */
 static inline bool ueventfd_write(struct ueventfd *fd)
 {
-#ifdef UPIPE_HAVE_EVENTFD
-    if (likely(fd->mode == UEVENTFD_MODE_EVENTFD)) {
-        for ( ; ; ) {
-            int ret = eventfd_write(fd->event_fd, 1);
-            if (likely(ret != -1))
-                return true;
-            switch (errno) {
-                case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-                case EWOULDBLOCK:
-#endif
-                    return true;
-                case EINTR:
-                    break;
-                default:
-                    return false;
-            }
-        }
-    } else
-#endif
-    if (likely(fd->mode == UEVENTFD_MODE_PIPE)) {
-        for ( ; ; ) {
-            char buf[1];
-            buf[0] = 0;
-            ssize_t ret = write((fd->pipe_fds)[1], buf, sizeof(buf));
-            if (likely(ret == 1)) return true;
-            if (likely(ret == -1)) {
-                switch (errno) {
-                    case EAGAIN:
-#if EAGAIN != EWOULDBLOCK
-                    case EWOULDBLOCK:
-#endif
-                        return true;
-                    case EINTR:
-                        break;
-                    default:
-                        return false;
-                }
-            }
-        }
-    } else {
-        return false; // shouldn't happen
-    }
+    return ueventfd_write_value(fd, 1);
 }
 
 /** @This initializes a ueventfd.

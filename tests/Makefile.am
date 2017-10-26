@@ -207,9 +207,11 @@ TESTS += \
 
 if HAVE_PTHREAD
 check_PROGRAMS += \
-	uprobe_pthread_upump_mgr_test
+	uprobe_pthread_upump_mgr_test \
+	uqueue_mutex_test
 TESTS += \
-	uprobe_pthread_upump_mgr_test
+	uprobe_pthread_upump_mgr_test \
+	uqueue_mutex_test
 endif
 
 # avcodec/avformat tests currently depend on ev
@@ -479,3 +481,4 @@ upipe_void_source_test_LDADD = $(LDADD) -lev $(top_builddir)/lib/upump-ev/libupu
 upipe_video_blank_test_LDADD = $(LDADD) $(top_builddir)/lib/upipe-modules/libupipe_modules.la
 upipe_audio_blank_test_LDADD = $(LDADD) $(top_builddir)/lib/upipe-modules/libupipe_modules.la
 upipe_grid_test_LDADD = $(LDADD) $(top_builddir)/lib/upipe-modules/libupipe_modules.la
+uqueue_mutex_test_LDADD = $(LDADD) $(top_builddir)/lib/upump-ev/libupump_ev.la $(top_builddir)/lib/upipe-pthread/libupipe_pthread.la -ldvbcsa -lpthread

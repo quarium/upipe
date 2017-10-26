@@ -674,7 +674,7 @@ static inline void upipe_notice_va(struct upipe *upipe, const char *format, ...)
 UBASE_FMT_PRINTF(2, 3)
 static inline void upipe_dbg_va(struct upipe *upipe, const char *format, ...)
 {
-    UBASE_VARARG(upipe_dbg(upipe, string))
+    //UBASE_VARARG(upipe_dbg(upipe, string))
 }
 
 /** @This throws a verbose statement event. This event is thrown whenever a pipe
@@ -695,7 +695,7 @@ UBASE_FMT_PRINTF(2, 3)
 static inline void upipe_verbose_va(struct upipe *upipe,
                                     const char *format, ...)
 {
-    UBASE_VARARG(upipe_verbose(upipe, string))
+    //UBASE_VARARG(upipe_verbose(upipe, string))
 }
 
 /** @This throws a fatal error event. After this event, the behaviour
