@@ -284,6 +284,22 @@ static void upipe_ts_pesd_decaps(struct upipe *upipe, struct upump **upump_p)
             dts_pts_delay = 0;
         }
         dts *= UCLOCK_FREQ / 90000;
+
+        static uint64_t my_dts = UINT64_MAX;
+        static uint64_t last_dts = UINT64_MAX;
+        if (my_dts == UINT64_MAX) {
+            my_dts = dts;
+            last_dts = dts;
+        }
+        else {
+            my_dts += 900000;
+            if (dts < last_dts)
+                fprintf(stderr, "dts is in the past\n");
+            else if (dts - last_dts > 900000) {
+                fprintf(stderr, "dts too far %"PRIu64"\n", dts - last_dts);
+                //dts = my_dts;
+            }
+        }
         uref_clock_set_dts_orig(upipe_ts_pesd->next_uref, dts);
         uref_clock_set_dts_pts_delay(upipe_ts_pesd->next_uref, dts_pts_delay);
         upipe_throw_clock_ts(upipe, upipe_ts_pesd->next_uref);

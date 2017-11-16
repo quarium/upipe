@@ -399,6 +399,36 @@ static int catch_rewrite_date(struct uprobe *uprobe, struct upipe *upipe,
     UBASE_SIGNATURE_CHECK(args, UPIPE_PROBE_UREF_SIGNATURE);
     struct uref *uref = va_arg(args, struct uref *);
 
+    static uint64_t last_pts = UINT64_MAX;
+    static uint64_t last_dts = UINT64_MAX;
+    uint64_t pts;
+    uint64_t dts;
+
+    if (probe_rewrite_date->video) {
+        ubase_assert(uref_clock_get_pts_orig(uref, &pts));
+        ubase_assert(uref_clock_get_dts_orig(uref, &dts));
+
+        fprintf(stderr, "USER pts: %"PRIu64"\n", pts);
+        fprintf(stderr, "USER dts: %"PRIu64"\n", dts);
+
+        if (last_pts != UINT64_MAX) {
+            fprintf(stderr, "USER pts diff: %f ms\n",
+                    ((float)pts - last_pts) * 1000 / UCLOCK_FREQ);
+            fprintf(stderr, "USER dts diff: %f ms\n",
+                    ((float)dts - last_dts) * 1000 / UCLOCK_FREQ);
+        }
+
+        static uint64_t force_pts = UINT64_MAX;
+        if (force_pts == UINT64_MAX)
+            force_pts = dts;
+        else
+            force_pts += dts - last_dts;
+        uref_clock_set_pts_orig(uref, force_pts);
+
+        last_pts = pts;
+        last_dts = dts;
+    }
+
     int type;
     uint64_t date;
     uref_clock_get_date_orig(uref, &date, &type);
