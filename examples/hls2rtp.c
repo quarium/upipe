@@ -668,7 +668,6 @@ static int catch_playlist(struct uprobe *uprobe,
             ret = upipe_hls_playlist_set_index(upipe, sequence);
             if (!ubase_check(ret))
                 cmd_quit();
-            return ret;
         }
 
         ret = upipe_hls_playlist_play(upipe);
