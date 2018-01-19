@@ -43,6 +43,7 @@
 #include <upipe/uprobe_prefix.h>
 
 #include <upipe/uref_m3u.h>
+#include <upipe/uref_m3u_master.h>
 #include <upipe/uref_uri.h>
 
 #include <libgen.h>
@@ -374,6 +375,24 @@ static void upipe_hls_variant_free(struct upipe *upipe)
     upipe_hls_variant_free_flow(upipe);
 }
 
+/**
+ * From https://developer.apple.com
+ *
+ *  AC-LC                                       "mp4a.40.2"
+ *  HE-AAC                                      "mp4a.40.5"
+ *  MP3                                         "mp4a.40.34"
+ *  H.264 Baseline Profile level 3.0            "avc1.42001e" or "avc1.66.30"
+ *      Note: Use "avc1.66.30" for compatibility with iOS versions 3.0 to 3.1.2.
+ *  H.264 Baseline Profile level 3.1            "avc1.42001f"
+ *  H.264 Main Profile level 3.0                "avc1.4d001e" or "avc1.77.30"
+ *      Note: Use "avc1.77.30" for compatibility with iOS versions 3.0 to 3.12.
+ *  H.264 Main Profile level 3.1                "avc1.4d001f"
+ *  H.264 Main Profile level 4.0                "avc1.4d0028"
+ *  H.264 High Profile level 3.1                "avc1.64001f"
+ *  H.264 High Profile level 4.0                "avc1.640028"
+ *  H.264 High Profile level 4.1                "avc1.640029"
+ */
+
 /** @internal @This starts the hls variant.
  *
  * @param upipe description structure of the pipe
@@ -393,7 +412,37 @@ static int upipe_hls_variant_split(struct upipe *upipe)
 
     struct uref *main_rend = uref_sibling_alloc_control(flow_def);
     UBASE_ALLOC_RETURN(main_rend);
-    uref_flow_set_def(main_rend, "void.");
+
+    /* check codecs */
+    const char *codecs;
+    if (unlikely(ubase_check(uref_m3u_master_get_codecs(flow_def, &codecs)))) {
+        bool audio_only = false;
+        bool video_only = false;
+        bool first = true;
+
+        uref_m3u_master_foreach_codec(flow_def, codec) {
+            if (ustring_match_str(codec, "mp4a.")) {
+                if (first)
+                    audio_only = true;
+                video_only = false;
+            }
+            else if (ustring_match_str(codec, "avc1.")) {
+                if (first)
+                    video_only = true;
+                audio_only = false;
+            }
+            first = false;
+        }
+
+        if (audio_only)
+            uref_flow_set_def(main_rend, "sound.");
+        else if (video_only)
+            uref_flow_set_def(main_rend, "pic.");
+        else
+            uref_flow_set_def(main_rend, "void.");
+    }
+    else
+        uref_flow_set_def(main_rend, "void.");
     uref_flow_set_id(main_rend, upipe_hls_variant->flow_id++);
     uref_hls_set_uri(main_rend, uri);
     ulist_add(&upipe_hls_variant->renditions, uref_to_uchain(main_rend));
