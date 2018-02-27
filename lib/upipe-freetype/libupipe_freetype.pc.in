@@ -5,6 +5,6 @@ includedir=@includedir@
 Name: libupipe_freetype
 Description: Upipe multimedia framework, freetype text renderer module
 Version: @VERSION@
-Requires: freetype2 libupipe
+Requires: freetype2 libupipe libupipe_modules
 Libs: -L${libdir} -lupipe_freetype
 Cflags: -I${includedir}
