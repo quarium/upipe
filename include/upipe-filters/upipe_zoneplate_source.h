@@ -28,13 +28,13 @@ extern "C" {
 #endif
 
 /** @This is the signature of a zoneplate source pipe. */
-#define UPIPE_ZONEPLATE_SIGNATURE    UBASE_FOURCC('z','o','n','e')
+#define UPIPE_ZPSRC_SIGNATURE    UBASE_FOURCC('z','p','s','r')
 
 /** @This returns the zoneplate source pipe manager.
  *
  * @return a pointer to the zoneplate source pipe manager
  */
-struct upipe_mgr *upipe_zoneplate_mgr_alloc(void);
+struct upipe_mgr *upipe_zpsrc_mgr_alloc(void);
 
 #ifdef __cplusplus
 }
