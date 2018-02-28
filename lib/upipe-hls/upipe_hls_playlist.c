@@ -849,7 +849,9 @@ static void upipe_hls_playlist_store_input_flow_def(struct upipe *upipe,
 static void upipe_hls_playlist_need_reload_cb(struct upump *upump)
 {
         struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
-        upipe_hls_playlist_throw_need_reload(upipe);
+        int ret = upipe_hls_playlist_throw_need_reload(upipe);
+        //if (unlikely(!ubase_check(ret)))
+            //upipe_throw_error(upipe, ret);
 }
 
 /** @internal @This sets a new flow definition.

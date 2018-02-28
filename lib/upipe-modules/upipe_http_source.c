@@ -76,6 +76,7 @@
 #define MAX_URL_SIZE            2048
 #define HTTP_VERSION            "HTTP/1.1"
 #define USER_AGENT              "upipe_http_src"
+#define DEFAULT_TIMEOUT         10 /* s */
 
 struct http_range {
     uint64_t offset;
@@ -143,6 +144,8 @@ struct upipe_http_src {
     unsigned int output_size;
     /** write watcher */
     struct upump *upump_write;
+    /** timer */
+    struct upump *timer;
 
     /** socket descriptor */
     int fd;
@@ -193,6 +196,7 @@ UPIPE_HELPER_UPUMP_MGR(upipe_http_src, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_http_src, upump, upump_mgr)
 UPIPE_HELPER_OUTPUT_SIZE(upipe_http_src, output_size)
 UPIPE_HELPER_UPUMP(upipe_http_src, upump_write, upump_mgr)
+UPIPE_HELPER_UPUMP(upipe_http_src, timer, upump_mgr);
 
 static int upipe_http_src_header_field(http_parser *parser,
                                        const char *at,
@@ -770,6 +774,10 @@ static void upipe_http_src_worker_write(struct upump *upump)
         upipe_http_src->request_pending = false;
         upipe_http_src_set_upump_write(upipe, NULL);
     }
+}
+
+static int upipe_http_src_restart_timer(struct upipe *upipe)
+{
 }
 
 /** @internal @This checks if the pump may be allocated.

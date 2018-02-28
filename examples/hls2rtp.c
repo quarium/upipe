@@ -986,16 +986,25 @@ static int catch_hls(struct uprobe *uprobe,
 static int catch_src(struct uprobe *uprobe, struct upipe *upipe,
                      int event, va_list args)
 {
-        if (event != UPROBE_HTTP_SRC_ERROR ||
-            ubase_get_signature(args) != UPIPE_HTTP_SRC_SIGNATURE)
-                return uprobe_throw_next(uprobe, upipe, event, args);
+    switch (event) {
+        case UPROBE_SOURCE_END:
+            if (variant == NULL)
+                cmd_quit();
+            return UBASE_ERR_NONE;
 
-        UBASE_SIGNATURE_CHECK(args, UPIPE_HTTP_SRC_SIGNATURE);
-        unsigned int code = va_arg(args, unsigned int);
+        case UPROBE_HTTP_SRC_ERROR: {
+            if (ubase_get_signature(args) == UPIPE_HTTP_SRC_SIGNATURE) {
+                UBASE_SIGNATURE_CHECK(args, UPIPE_HTTP_SRC_SIGNATURE);
+                unsigned int code = va_arg(args, unsigned int);
 
-        uprobe_err_va(uprobe, NULL, "http error %u", code);
-        cmd_quit();
-        return UBASE_ERR_NONE;
+                uprobe_err_va(uprobe, NULL, "http error %u", code);
+                cmd_quit();
+                return UBASE_ERR_NONE;
+            }
+        }
+    }
+
+    return uprobe_throw_next(uprobe, upipe, event, args);
 }
 
 static struct upipe *hls2rtp_video_sink(struct uprobe *probe,
@@ -1193,6 +1202,7 @@ static int catch_error(struct uprobe *uprobe,
     }
 
     case UPROBE_ERROR:
+        upipe_err(upipe, "an error occured, quit...");
         cmd_quit();
         return UBASE_ERR_NONE;
     }
