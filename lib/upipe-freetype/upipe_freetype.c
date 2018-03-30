@@ -545,6 +545,131 @@ static int upipe_freetype_set_flow_def(struct upipe *upipe, struct uref *flow_de
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This sets the freetype pixel size.
+ *
+ * @param upipe description structure of the pipe
+ * @param pixel_size pixel size to set
+ * @return an error code
+ */
+static int upipe_freetype_set_pixel_size_real(struct upipe *upipe,
+                                              unsigned pixel_size)
+{
+    struct upipe_freetype *upipe_freetype = upipe_freetype_from_upipe(upipe);
+    upipe_freetype->pixel_size = pixel_size;
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This gets the x and y minimum and maximum values of the rendered
+ * characters.
+ *
+ * @param upipe description structure of the pipe
+ * @param str a string with the rendered characters
+ * @param bbox_p filled with x and y mininum and maximum value
+ * @return an error code
+ */
+static int upipe_freetype_get_bbox_real(struct upipe *upipe,
+                                        const char *str,
+                                        struct upipe_freetype_bbox *bbox_p)
+{
+    struct upipe_freetype *upipe_freetype = upipe_freetype_from_upipe(upipe);
+    size_t length = str ? strlen(str) : 0;
+
+    FT_BBox str_bbox;
+    str_bbox.yMax = 0;
+    str_bbox.yMin = 0;
+    str_bbox.xMax = 0;
+    str_bbox.xMin = 0;
+    for (int i = 0; i < length; i++) {
+        FT_UInt index = FTC_CMapCache_Lookup(upipe_freetype->cmap_cache,
+                                             upipe_freetype->font, -1, str[i]);
+        if (unlikely(!index))
+            return UBASE_ERR_EXTERNAL;
+
+        FTC_ImageTypeRec type;
+        type.face_id = upipe_freetype->font;
+        type.width = upipe_freetype->pixel_size;
+        type.height = upipe_freetype->pixel_size;
+        type.flags = FT_LOAD_DEFAULT;
+        FT_Glyph glyph;
+        if (FTC_ImageCache_Lookup(upipe_freetype->img_cache,
+                                  &type, index,
+                                  &glyph, NULL))
+            return UBASE_ERR_EXTERNAL;
+
+        FT_BBox bbox;
+        FT_Glyph_Get_CBox(glyph, FT_GLYPH_BBOX_PIXELS, &bbox);
+
+        if (bbox.yMin < str_bbox.yMin)
+            str_bbox.yMin = bbox.yMin;
+        if (bbox.yMax > str_bbox.yMax)
+            str_bbox.yMax = bbox.yMax;
+        if (bbox.xMin < str_bbox.xMin)
+            str_bbox.xMin = bbox.xMin;
+        if (bbox.xMax > str_bbox.xMax)
+            str_bbox.xMax = bbox.xMax;
+    }
+    if (bbox_p) {
+        bbox_p->min.y = str_bbox.yMin;
+        bbox_p->max.y = str_bbox.yMax;
+        bbox_p->min.x = str_bbox.xMin;
+        bbox_p->max.x = str_bbox.xMax;
+    }
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This gets the width of the rendered string.
+ *
+ * @param upipe description structure of the pipe
+ * @param str a string to get the rendered width from
+ * @return an error code
+ */
+static int upipe_freetype_get_width_real(struct upipe *upipe,
+                                         const char *str,
+                                         uint64_t *width_p)
+{
+    struct upipe_freetype *upipe_freetype = upipe_freetype_from_upipe(upipe);
+    size_t length = str ? strlen(str) : 0;
+
+    uint64_t width = 0;
+    for (int i = 0; i < length; i++) {
+        FT_UInt index = FTC_CMapCache_Lookup(upipe_freetype->cmap_cache,
+                                             upipe_freetype->font, -1, str[i]);
+        if (unlikely(!index))
+            return UBASE_ERR_EXTERNAL;
+
+        FTC_ImageTypeRec type;
+        type.face_id = upipe_freetype->font;
+        type.width = upipe_freetype->pixel_size;
+        type.height = upipe_freetype->pixel_size;
+        type.flags = FT_LOAD_DEFAULT;
+        FT_Glyph glyph;
+        if (FTC_ImageCache_Lookup(upipe_freetype->img_cache,
+                                  &type, index,
+                                  &glyph, NULL))
+            return UBASE_ERR_EXTERNAL;
+        width += glyph->advance.x >> 16;
+    }
+    if (width_p)
+        *width_p = width;
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the baseline offsets in the picture buffer.
+ *
+ * @param upipe description structure of the pipe
+ * @param xoff offset from the left of the buffer
+ * @param yoff offset from the top of the buffer
+ * @return an error code
+ */
+static int upipe_freetype_set_baseline_real(struct upipe *upipe,
+                                            uint64_t xoff, uint64_t yoff)
+{
+    struct upipe_freetype *upipe_freetype = upipe_freetype_from_upipe(upipe);
+    upipe_freetype->xoff = xoff;
+    upipe_freetype->yoff = yoff;
+    return UBASE_ERR_NONE;
+}
+
 /** @internal @This processes control commands.
  *
  * @param upipe description structure of the pipe
@@ -570,6 +695,46 @@ static int upipe_freetype_control_real(struct upipe *upipe,
             const char *option = va_arg(args, const char *);
             const char *value  = va_arg(args, const char *);
             return upipe_freetype_set_option(upipe, option, value);
+        }
+
+        case UPIPE_FREETYPE_GET_BBOX: {
+            if (ubase_get_signature(args) != UPIPE_FREETYPE_SIGNATURE)
+                return UBASE_ERR_UNHANDLED;
+
+            UBASE_SIGNATURE_CHECK(args, UPIPE_FREETYPE_SIGNATURE);
+            const char *str = va_arg(args, const char *);
+            struct upipe_freetype_bbox *bbox_p =
+                va_arg(args, struct upipe_freetype_bbox *);
+            return upipe_freetype_get_bbox_real(upipe, str, bbox_p);
+        }
+
+        case UPIPE_FREETYPE_GET_WIDTH: {
+            if (ubase_get_signature(args) != UPIPE_FREETYPE_SIGNATURE)
+                return UBASE_ERR_UNHANDLED;
+
+            UBASE_SIGNATURE_CHECK(args, UPIPE_FREETYPE_SIGNATURE);
+            const char *str = va_arg(args, const char *);
+            uint64_t *width_p = va_arg(args, uint64_t *);
+            return upipe_freetype_get_width_real(upipe, str, width_p);
+        }
+
+        case UPIPE_FREETYPE_SET_PIXEL_SIZE: {
+            if (ubase_get_signature(args) != UPIPE_FREETYPE_SIGNATURE)
+                return UBASE_ERR_UNHANDLED;
+
+            UBASE_SIGNATURE_CHECK(args, UPIPE_FREETYPE_SIGNATURE);
+            unsigned pixel_size = va_arg(args, unsigned);
+            return upipe_freetype_set_pixel_size_real(upipe, pixel_size);
+        }
+
+        case UPIPE_FREETYPE_SET_BASELINE: {
+            if (ubase_get_signature(args) != UPIPE_FREETYPE_SIGNATURE)
+                return UBASE_ERR_UNHANDLED;
+
+            UBASE_SIGNATURE_CHECK(args, UPIPE_FREETYPE_SIGNATURE);
+            uint64_t xoff = va_arg(args, uint64_t);
+            uint64_t yoff = va_arg(args, uint64_t);
+            return upipe_freetype_set_baseline_real(upipe, xoff, yoff);
         }
 
         default:
