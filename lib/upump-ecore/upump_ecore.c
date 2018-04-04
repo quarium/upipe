@@ -197,7 +197,7 @@ static struct upump *upump_ecore_alloc(struct upump_mgr *mgr,
 static void upump_ecore_real_start(struct upump *upump, bool status)
 {
     struct upump_ecore *upump_ecore = upump_ecore_from_upump(upump);
-    abort(status); /* FIXME not implemented */
+    assert(status); /* FIXME not implemented */
 
     switch (upump_ecore->event) {
         case UPUMP_TYPE_IDLER:
@@ -226,7 +226,7 @@ static void upump_ecore_real_start(struct upump *upump, bool status)
 static void upump_ecore_real_stop(struct upump *upump, bool status)
 {
     struct upump_ecore *upump_ecore = upump_ecore_from_upump(upump);
-    abort(status); /* FIXME not implemented */
+    assert(status); /* FIXME not implemented */
 
     switch (upump_ecore->event) {
         case UPUMP_TYPE_IDLER:
