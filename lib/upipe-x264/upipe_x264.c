@@ -132,14 +132,8 @@ struct upipe_x264 {
     bool headers_requested;
     /** requested encaps */
     enum uref_h26x_encaps encaps_requested;
-    /** output flow */
-    struct uref *flow_def;
-    /** output pipe */
-    struct upipe *output;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** input SAR */
     struct urational sar;
@@ -176,7 +170,7 @@ static bool upipe_x264_handle(struct upipe *upipe, struct uref *uref,
 UPIPE_HELPER_UPIPE(upipe_x264, upipe, UPIPE_X264_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_x264, urefcount, upipe_x264_free)
 UPIPE_HELPER_VOID(upipe_x264);
-UPIPE_HELPER_OUTPUT(upipe_x264, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_x264, helper_output)
 UPIPE_HELPER_INPUT(upipe_x264, urefs, nb_urefs, max_urefs, blockers, upipe_x264_handle)
 UPIPE_HELPER_FLOW_FORMAT(upipe_x264, flow_format_request,
                          upipe_x264_check_flow_format,
@@ -1031,7 +1025,9 @@ static bool upipe_x264_handle(struct upipe *upipe, struct uref *uref,
         uref_flow_set_random(uref);
     }
 
-    if (upipe_x264->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_x264_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         upipe_x264_build_flow_def(upipe);
 
     upipe_x264_output(upipe, uref, upump_p);

@@ -61,14 +61,8 @@ struct upipe_agg {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** MTU */
     size_t output_size;
@@ -87,7 +81,7 @@ struct upipe_agg {
 UPIPE_HELPER_UPIPE(upipe_agg, upipe, UPIPE_AGG_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_agg, urefcount, upipe_agg_free)
 UPIPE_HELPER_VOID(upipe_agg)
-UPIPE_HELPER_OUTPUT(upipe_agg, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_agg, helper_output)
 UPIPE_HELPER_OUTPUT_SIZE(upipe_agg, output_size)
 
 /** @internal @This allocates a agg pipe.

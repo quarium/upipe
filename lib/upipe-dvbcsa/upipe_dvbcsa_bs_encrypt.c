@@ -58,14 +58,8 @@ struct upipe_dvbcsa_bs_enc {
     struct upipe upipe;
     /** refcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** requests list */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** uclock */
     struct uclock *uclock;
     /** uclock request */
@@ -109,8 +103,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_dvbcsa_bs_enc, urefcount,
 UPIPE_HELPER_VOID(upipe_dvbcsa_bs_enc);
 UPIPE_HELPER_INPUT(upipe_dvbcsa_bs_enc, urefs, nb_urefs, max_urefs, blockers,
                    NULL);
-UPIPE_HELPER_OUTPUT(upipe_dvbcsa_bs_enc, output, flow_def, output_state,
-                    requests);
+UPIPE_HELPER_OUTPUT2(upipe_dvbcsa_bs_enc, helper_output);
 UPIPE_HELPER_UCLOCK(upipe_dvbcsa_bs_enc, uclock, uclock_request,
                     upipe_dvbcsa_bs_enc_check,
                     upipe_dvbcsa_bs_enc_register_output_request,

@@ -116,14 +116,8 @@ struct upipe_avcenc {
     struct uref *flow_def_check;
     /** requested flow */
     struct uref *flow_def_requested;
-    /** output flow */
-    struct uref *flow_def;
-    /** output pipe */
-    struct upipe *output;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -187,7 +181,7 @@ struct upipe_avcenc {
 UPIPE_HELPER_UPIPE(upipe_avcenc, upipe, UPIPE_AVCENC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_avcenc, urefcount, upipe_avcenc_close)
 UPIPE_HELPER_FLOW(upipe_avcenc, "block.")
-UPIPE_HELPER_OUTPUT(upipe_avcenc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_avcenc, helper_output)
 UPIPE_HELPER_INPUT(upipe_avcenc, urefs, nb_urefs, max_urefs, blockers, upipe_avcenc_handle)
 UPIPE_HELPER_FLOW_FORMAT(upipe_avcenc, flow_format_request,
                          upipe_avcenc_check_flow_format,
@@ -615,7 +609,9 @@ static bool upipe_avcenc_encode_frame(struct upipe *upipe,
     if (codec->type == AVMEDIA_TYPE_VIDEO && keyframe)
         uref_flow_set_random(uref);
 
-    if (upipe_avcenc->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_avcenc_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         upipe_avcenc_build_flow_def(upipe);
 
     upipe_avcenc_output(upipe, uref, upump_p);

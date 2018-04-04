@@ -74,14 +74,8 @@ struct upipe_ts_pese {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** latency in the input flow */
     uint64_t input_latency;
 
@@ -116,7 +110,7 @@ UPIPE_HELPER_UPIPE(upipe_ts_pese, upipe, UPIPE_TS_PESE_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_pese, urefcount, upipe_ts_pese_free)
 UPIPE_HELPER_VOID(upipe_ts_pese)
 
-UPIPE_HELPER_OUTPUT(upipe_ts_pese, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_pese, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_ts_pese, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_ts_pese_check,
                       upipe_ts_pese_register_output_request,
@@ -281,7 +275,9 @@ static bool upipe_ts_pese_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (upipe_ts_pese->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_ts_pese_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     uint64_t uref_duration = upipe_ts_pese->pes_min_duration;
@@ -332,7 +328,9 @@ static int upipe_ts_pese_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_ts_pese_store_flow_def(upipe, flow_format);
 
-    if (upipe_ts_pese->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_ts_pese_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_ts_pese_check_input(upipe);

@@ -73,14 +73,8 @@ struct upipe_ts_scte35d {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -89,7 +83,7 @@ struct upipe_ts_scte35d {
 UPIPE_HELPER_UPIPE(upipe_ts_scte35d, upipe, UPIPE_TS_SCTE35D_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_scte35d, urefcount, upipe_ts_scte35d_free)
 UPIPE_HELPER_VOID(upipe_ts_scte35d)
-UPIPE_HELPER_OUTPUT(upipe_ts_scte35d, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_scte35d, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_ts_scte35d, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_ts_scte35d_check,
                       upipe_ts_scte35d_register_output_request,
@@ -154,7 +148,9 @@ static void upipe_ts_scte35d_input(struct upipe *upipe, struct uref *uref,
 {
     struct upipe_ts_scte35d *upipe_ts_scte35d =
         upipe_ts_scte35d_from_upipe(upipe);
-    assert(upipe_ts_scte35d->flow_def != NULL);
+    struct uref *flow_def = NULL;
+    upipe_ts_scte35d_get_flow_def(upipe, &flow_def);
+    assert(flow_def != NULL);
 
     uint8_t buffer[SCTE35_HEADER_SIZE];
     const uint8_t *header = uref_block_peek(uref, 0, SCTE35_HEADER_SIZE,

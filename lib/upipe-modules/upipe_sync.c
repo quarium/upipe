@@ -59,14 +59,8 @@ struct upipe_sync {
     /** subpipes mgr */
     struct upipe_mgr sub_mgr;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     // TODO: only one video (master)
     uint64_t latency;
@@ -104,7 +98,7 @@ UPIPE_HELPER_UCLOCK(upipe_sync, uclock, uclock_request, NULL,
                     upipe_throw_provide_request, NULL);
 UPIPE_HELPER_UPUMP(upipe_sync, upump, upump_mgr);
 UPIPE_HELPER_UPUMP_MGR(upipe_sync, upump_mgr);
-UPIPE_HELPER_OUTPUT(upipe_sync, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_sync, helper_output);
 
 /** upipe_sync_sub structure */
 struct upipe_sync_sub {
@@ -114,14 +108,8 @@ struct upipe_sync_sub {
     /** public upipe structure */
     struct upipe upipe;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** linked list of subpipes */
     struct uchain uchain;
@@ -169,7 +157,7 @@ static int upipe_sync_sub_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_sync_sub, upipe, UPIPE_SYNC_SUB_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_sync_sub, urefcount, upipe_sync_sub_free)
 UPIPE_HELPER_VOID(upipe_sync_sub);
-UPIPE_HELPER_OUTPUT(upipe_sync_sub, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_sync_sub, helper_output);
 
 UPIPE_HELPER_UREF_MGR(upipe_sync_sub, uref_mgr, uref_mgr_request,
                       NULL,
@@ -224,10 +212,12 @@ static struct upipe *upipe_sync_sub_alloc(struct upipe_mgr *mgr,
 static void upipe_sync_build_flow_def(struct upipe *upipe)
 {
     struct upipe_sync *upipe_sync = upipe_sync_from_upipe(upipe);
-    struct uref *flow_def = upipe_sync->flow_def;
+    struct uref *flow_def = NULL;
+
+    upipe_sync_get_flow_def(upipe, &flow_def);
     if (flow_def == NULL)
         return;
-    upipe_sync->flow_def = NULL;
+    upipe_sync->helper_output.flow_def = NULL;
 
     if (!ubase_check(uref_clock_set_latency(flow_def, upipe_sync->latency)))
         upipe_throw_error(upipe, UBASE_ERR_ALLOC);
@@ -242,10 +232,12 @@ static void upipe_sync_build_flow_def(struct upipe *upipe)
 static void upipe_sync_sub_build_flow_def(struct upipe *upipe)
 {
     struct upipe_sync_sub *upipe_sync_sub = upipe_sync_sub_from_upipe(upipe);
-    struct uref *flow_def = upipe_sync_sub->flow_def;
+    struct uref *flow_def = NULL;
+
+    upipe_sync_sub_get_flow_def(upipe, &flow_def);;
     if (flow_def == NULL)
         return;
-    upipe_sync_sub->flow_def = NULL;
+    upipe_sync_sub->helper_output.flow_def = NULL;
 
     struct upipe_sync *upipe_sync = upipe_sync_from_sub_mgr(upipe->mgr);
     if (!ubase_check(uref_clock_set_latency(flow_def, upipe_sync->latency)))
@@ -285,7 +277,9 @@ static uint64_t upipe_sync_get_max_latency(struct upipe *upipe)
     ulist_foreach (&upipe_sync->subs, uchain) {
         struct upipe_sync_sub *upipe_sync_sub =
             upipe_sync_sub_from_uchain(uchain);
-        struct uref *flow_def = upipe_sync_sub->flow_def;
+        struct uref *flow_def = NULL;
+        upipe_sync_sub_get_flow_def(upipe_sync_sub_to_upipe(upipe_sync_sub),
+                                    &flow_def);
         if (flow_def == NULL)
             continue;
         uint64_t latency;

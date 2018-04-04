@@ -52,14 +52,8 @@ struct upipe_ts_tstd {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** maximum retention delay */
     uint64_t max_delay;
@@ -83,7 +77,7 @@ struct upipe_ts_tstd {
 UPIPE_HELPER_UPIPE(upipe_ts_tstd, upipe, UPIPE_TS_TSTD_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_tstd, urefcount, upipe_ts_tstd_free)
 UPIPE_HELPER_VOID(upipe_ts_tstd)
-UPIPE_HELPER_OUTPUT(upipe_ts_tstd, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_tstd, helper_output)
 
 /** @internal @This handles urefs.
  *
@@ -205,8 +199,10 @@ static int upipe_ts_tstd_set_max_delay(struct upipe *upipe, uint64_t delay)
 {
     struct upipe_ts_tstd *upipe_ts_tstd = upipe_ts_tstd_from_upipe(upipe);
     upipe_ts_tstd->max_delay = delay;
-    if (upipe_ts_tstd->flow_def != NULL)
-        return upipe_ts_tstd_set_flow_def(upipe, upipe_ts_tstd->flow_def);
+    struct uref *flow_def = NULL;
+    upipe_ts_tstd_get_flow_def(upipe, &flow_def);
+    if (flow_def != NULL)
+        return upipe_ts_tstd_set_flow_def(upipe, flow_def);
     return UBASE_ERR_NONE;
 }
 

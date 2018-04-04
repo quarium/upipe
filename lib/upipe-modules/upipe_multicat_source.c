@@ -88,14 +88,8 @@ struct upipe_msrc {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -131,7 +125,7 @@ UPIPE_HELPER_UPIPE(upipe_msrc, upipe, UPIPE_MSRC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_msrc, urefcount, upipe_msrc_free)
 UPIPE_HELPER_VOID(upipe_msrc)
 
-UPIPE_HELPER_OUTPUT(upipe_msrc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_msrc, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_msrc, uref_mgr, uref_mgr_request, upipe_msrc_check,
                       upipe_msrc_register_output_request,
                       upipe_msrc_unregister_output_request)

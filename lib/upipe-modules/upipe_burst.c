@@ -47,14 +47,8 @@ struct upipe_burst {
     struct urefcount urefcount;
     /** real refcount */
     struct urefcount urefcount_real;
-    /** output pipe */
-    struct upipe *output;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** output flow format */
-    struct uref *flow_def;
-    /** output request list */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** list of hold uref */
     struct uchain urefs;
     /** upump manager */
@@ -75,7 +69,7 @@ static void upipe_burst_free(struct urefcount *urefcount);
 UPIPE_HELPER_UPIPE(upipe_burst, upipe, UPIPE_BURST_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_burst, urefcount, upipe_burst_no_ref);
 UPIPE_HELPER_VOID(upipe_burst);
-UPIPE_HELPER_OUTPUT(upipe_burst, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_burst, helper_output);
 UPIPE_HELPER_UPUMP_MGR(upipe_burst, upump_mgr);
 UPIPE_HELPER_UPUMP(upipe_burst, upump, upump_mgr);
 

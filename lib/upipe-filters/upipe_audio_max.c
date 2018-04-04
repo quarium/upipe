@@ -51,14 +51,8 @@ struct upipe_amax {
 
     upipe_amax_process process;
 
-    /** output */
-    struct upipe *output;
-    /** output flow */
-    struct uref *output_flow;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public structure */
     struct upipe upipe;
@@ -67,7 +61,7 @@ struct upipe_amax {
 UPIPE_HELPER_UPIPE(upipe_amax, upipe, UPIPE_AUDIO_MAX_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_amax, urefcount, upipe_amax_free)
 UPIPE_HELPER_VOID(upipe_amax)
-UPIPE_HELPER_OUTPUT(upipe_amax, output, output_flow, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_amax, helper_output)
 
 /** @internal @This allocates a filter pipe.
  *

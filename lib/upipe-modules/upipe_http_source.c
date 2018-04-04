@@ -126,14 +126,8 @@ struct upipe_http_src {
     /** uclock request */
     struct urequest uclock_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -176,7 +170,7 @@ UPIPE_HELPER_UPIPE(upipe_http_src, upipe, UPIPE_HTTP_SRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_http_src, urefcount, upipe_http_src_free)
 UPIPE_HELPER_VOID(upipe_http_src)
 
-UPIPE_HELPER_OUTPUT(upipe_http_src, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_http_src, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_http_src, uref_mgr, uref_mgr_request,
                       upipe_http_src_check,
                       upipe_http_src_register_output_request,
@@ -272,7 +266,9 @@ static struct upipe *upipe_http_src_alloc(struct upipe_mgr *mgr,
 static void upipe_http_src_close(struct upipe *upipe)
 {
     struct upipe_http_src *upipe_http_src = upipe_http_src_from_upipe(upipe);
-    struct uref *flow_def = upipe_http_src->flow_def;
+    struct uref *flow_def = NULL;
+
+    upipe_http_src_get_flow_def(upipe, &flow_def);
 
     if (likely(upipe_http_src->url != NULL))
         upipe_notice_va(upipe, "closing %s", upipe_http_src->url);
@@ -347,7 +343,9 @@ static int upipe_http_src_header_value(http_parser *parser,
 {
     struct upipe_http_src *upipe_http_src = upipe_http_src_from_parser(parser);
     struct upipe *upipe = upipe_http_src_to_upipe(upipe_http_src);
-    struct uref *flow_def = upipe_http_src->flow_def;
+    struct uref *flow_def = NULL;
+
+    upipe_http_src_get_flow_def(upipe, &flow_def);
 
     struct header field = upipe_http_src->header_field;
     upipe_http_src->header_field = HEADER(NULL, 0);
@@ -631,11 +629,13 @@ static int request_add(char **req_p, size_t *len, const char *fmt, ...)
 static int upipe_http_src_send_request(struct upipe *upipe)
 {
     struct upipe_http_src *upipe_http_src = upipe_http_src_from_upipe(upipe);
-    struct uref *flow_def = upipe_http_src->flow_def;
+    struct uref *flow_def = NULL;
     char req_buffer[16384];
     size_t req_len = sizeof (req_buffer);
     char *req = req_buffer;
     int ret;
+
+    upipe_http_src_get_flow_def(upipe, &flow_def);
 
     const char *path;
     ret = uref_uri_get_path(flow_def, &path);
@@ -782,10 +782,12 @@ static int upipe_http_src_check(struct upipe *upipe, struct uref *flow_format)
 {
     struct upipe_http_src *upipe_http_src = upipe_http_src_from_upipe(upipe);
     if (flow_format != NULL) {
-        if (!upipe_http_src->flow_def)
+        struct uref *flow_def = NULL;
+        upipe_http_src_get_flow_def(upipe, &flow_def);
+        if (!flow_def)
             upipe_http_src_store_flow_def(upipe, flow_format);
         else {
-            int ret = uref_flow_cmp_def(upipe_http_src->flow_def, flow_format);
+            int ret = uref_flow_cmp_def(flow_def, flow_format);
             uref_free(flow_format);
             if (!ubase_check(ret))
                 return ret;
@@ -872,11 +874,12 @@ static int upipe_http_src_get_uri(struct upipe *upipe, const char **url_p)
 static int upipe_http_src_open_url(struct upipe *upipe)
 {
     struct upipe_http_src *upipe_http_src = upipe_http_src_from_upipe(upipe);
-    struct uref *flow_def = upipe_http_src->flow_def;
+    struct uref *flow_def = NULL;
     struct addrinfo *info = NULL, *res;
     struct addrinfo hints;
     int ret, fd = -1;
 
+    upipe_http_src_get_flow_def(upipe, &flow_def);
     if (unlikely(flow_def == NULL))
         return UBASE_ERR_INVALID;
 

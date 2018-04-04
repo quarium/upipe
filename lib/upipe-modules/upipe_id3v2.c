@@ -47,14 +47,8 @@ struct upipe_id3v2 {
     struct upipe upipe;
     /** urefcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow def */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** output requests */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** id3v2 header */
     uint8_t header[ID3V2_HEADER_SIZE];
@@ -75,7 +69,7 @@ struct upipe_id3v2 {
 UPIPE_HELPER_UPIPE(upipe_id3v2, upipe, UPIPE_ID3V2_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_id3v2, urefcount, upipe_id3v2_no_ref);
 UPIPE_HELPER_VOID(upipe_id3v2);
-UPIPE_HELPER_OUTPUT(upipe_id3v2, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_id3v2, helper_output);
 
 /** @internal @This allocates an id3v2 pipe.
  *

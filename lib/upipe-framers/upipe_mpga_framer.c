@@ -114,14 +114,8 @@ struct upipe_mpgaf {
     struct urefcount urefcount;
 
     /* output stuff */
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
     /** attributes in the sequence header */
@@ -242,7 +236,7 @@ UPIPE_HELPER_SYNC(upipe_mpgaf, acquired)
 UPIPE_HELPER_UREF_STREAM(upipe_mpgaf, next_uref, next_uref_size, urefs,
                          upipe_mpgaf_promote_uref)
 
-UPIPE_HELPER_OUTPUT(upipe_mpgaf, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_mpgaf, helper_output)
 UPIPE_HELPER_INPUT(upipe_mpgaf, request_urefs, nb_urefs, max_urefs, blockers, upipe_mpgaf_handle)
 UPIPE_HELPER_FLOW_FORMAT(upipe_mpgaf, request, upipe_mpgaf_check_flow_format,
                          upipe_mpgaf_register_output_request,

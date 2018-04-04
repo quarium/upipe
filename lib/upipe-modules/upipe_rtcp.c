@@ -53,18 +53,14 @@ struct upipe_rtcp {
     /** uref manager request */
     struct urequest uref_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf mgr structures */
     struct ubuf_mgr *ubuf_mgr;
     struct urequest ubuf_mgr_request;
+    /** ubuf mgr flow format */
+    struct uref *flow_format;
 
     uint32_t clockrate;
     uint32_t packet_count;
@@ -81,13 +77,12 @@ static int upipe_rtcp_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_rtcp, upipe, UPIPE_RTCP_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_rtcp, urefcount, upipe_rtcp_free)
 UPIPE_HELPER_VOID(upipe_rtcp)
-UPIPE_HELPER_OUTPUT(upipe_rtcp, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_rtcp, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_rtcp, uref_mgr, uref_mgr_request,
                       upipe_rtcp_check,
                       upipe_rtcp_register_output_request,
                       upipe_rtcp_unregister_output_request)
-UPIPE_HELPER_UBUF_MGR(upipe_rtcp, ubuf_mgr, flow_def, ubuf_mgr_request,
+UPIPE_HELPER_UBUF_MGR(upipe_rtcp, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_rtcp_check,
                       upipe_rtcp_register_output_request,
                       upipe_rtcp_unregister_output_request)
@@ -99,7 +94,9 @@ static int upipe_rtcp_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_rtcp_store_flow_def(upipe, flow_format);
 
-    if (upipe_rtcp->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_rtcp_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     if (upipe_rtcp->uref_mgr == NULL) {

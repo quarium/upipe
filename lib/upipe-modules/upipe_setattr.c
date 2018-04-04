@@ -49,14 +49,8 @@ struct upipe_setattr {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** dictionary to set */
     struct uref *dict;
@@ -68,7 +62,7 @@ struct upipe_setattr {
 UPIPE_HELPER_UPIPE(upipe_setattr, upipe, UPIPE_SETATTR_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_setattr, urefcount, upipe_setattr_free)
 UPIPE_HELPER_VOID(upipe_setattr)
-UPIPE_HELPER_OUTPUT(upipe_setattr, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_setattr, helper_output)
 
 /** @internal @This allocates a setattr pipe.
  *

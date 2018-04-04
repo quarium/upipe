@@ -143,14 +143,8 @@ struct upipe_x265 {
     bool headers_requested;
     /** requested encaps */
     enum uref_h26x_encaps encaps_requested;
-    /** output flow */
-    struct uref *flow_def;
-    /** output pipe */
-    struct upipe *output;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** input pixel format */
     enum {
@@ -216,7 +210,7 @@ static bool upipe_x265_handle(struct upipe *upipe, struct uref *uref,
 UPIPE_HELPER_UPIPE(upipe_x265, upipe, UPIPE_X265_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_x265, urefcount, upipe_x265_free)
 UPIPE_HELPER_VOID(upipe_x265);
-UPIPE_HELPER_OUTPUT(upipe_x265, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_x265, helper_output)
 UPIPE_HELPER_INPUT(upipe_x265, urefs, nb_urefs, max_urefs, blockers, upipe_x265_handle)
 UPIPE_HELPER_FLOW_FORMAT(upipe_x265, flow_format_request,
                          upipe_x265_check_flow_format,
@@ -1025,7 +1019,9 @@ static bool upipe_x265_handle(struct upipe *upipe,
     if (IS_X265_TYPE_I(pic.sliceType))
         uref_flow_set_random(uref);
 
-    if (upipe_x265->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_x265_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         upipe_x265_build_flow_def(upipe);
 
     upipe_x265_output(upipe, uref, upump_p);

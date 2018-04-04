@@ -50,16 +50,10 @@ struct upipe_subpic_schedule {
     /** refcount management structure exported to the public structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** attributes / parameters from application */
     struct uref *flow_def_params;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** list of subpipes */
     struct uchain subs;
@@ -79,16 +73,10 @@ struct upipe_subpic_schedule_sub {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** attributes / parameters from application */
     struct uref *flow_def_params;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** if this stream is teletext */
     bool teletext;
@@ -104,12 +92,12 @@ struct upipe_subpic_schedule_sub {
 };
 
 UPIPE_HELPER_UPIPE(upipe_subpic_schedule, upipe, UPIPE_SUBPIC_SCHEDULE_SIGNATURE);
-UPIPE_HELPER_OUTPUT(upipe_subpic_schedule, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_subpic_schedule, helper_output)
 UPIPE_HELPER_UREFCOUNT(upipe_subpic_schedule, urefcount, upipe_subpic_schedule_no_input)
 UPIPE_HELPER_VOID(upipe_subpic_schedule);
 
 UPIPE_HELPER_UPIPE(upipe_subpic_schedule_sub, upipe, UPIPE_SUBPIC_SCHEDULE_SUB_SIGNATURE);
-UPIPE_HELPER_OUTPUT(upipe_subpic_schedule_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_subpic_schedule_sub, helper_output)
 UPIPE_HELPER_UREFCOUNT(upipe_subpic_schedule_sub, urefcount, upipe_subpic_schedule_sub_free)
 UPIPE_HELPER_VOID(upipe_subpic_schedule_sub);
 

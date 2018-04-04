@@ -192,14 +192,8 @@ struct upipe_ts_demux {
     /** uref manager request */
     struct urequest uref_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain output_request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** list of input bin requests */
     struct uchain input_request_list;
@@ -288,8 +282,7 @@ struct upipe_ts_demux {
 UPIPE_HELPER_UPIPE(upipe_ts_demux, upipe, UPIPE_TS_DEMUX_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_demux, urefcount, upipe_ts_demux_no_input)
 UPIPE_HELPER_VOID(upipe_ts_demux)
-UPIPE_HELPER_OUTPUT(upipe_ts_demux, output, flow_def, output_state,
-                    output_request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_demux, helper_output)
 UPIPE_HELPER_SYNC(upipe_ts_demux, acquired)
 UPIPE_HELPER_INNER(upipe_ts_demux, input)
 UPIPE_HELPER_BIN_INPUT(upipe_ts_demux, input, input_request_list)
@@ -311,14 +304,8 @@ struct upipe_ts_demux_program {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain output_request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** flow definition of the input */
     struct uref *flow_def_input;
@@ -387,8 +374,7 @@ UPIPE_HELPER_UPIPE(upipe_ts_demux_program, upipe,
 UPIPE_HELPER_UREFCOUNT(upipe_ts_demux_program, urefcount,
                        upipe_ts_demux_program_no_input)
 UPIPE_HELPER_FLOW(upipe_ts_demux_program, "void.")
-UPIPE_HELPER_OUTPUT(upipe_ts_demux_program, output, flow_def, output_state,
-                    output_request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_demux_program, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_ts_demux, upipe_ts_demux_program, program,
                      program_mgr, programs, uchain)

@@ -60,14 +60,8 @@ struct upipe_s337_encaps {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -99,7 +93,7 @@ static bool upipe_s337_encaps_handle(struct upipe *upipe, struct uref *uref,
 UPIPE_HELPER_UPIPE(upipe_s337_encaps, upipe, UPIPE_S337E_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_s337_encaps, urefcount, upipe_s337_encaps_free)
 UPIPE_HELPER_VOID(upipe_s337_encaps);
-UPIPE_HELPER_OUTPUT(upipe_s337_encaps, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_s337_encaps, helper_output);
 UPIPE_HELPER_INPUT(upipe_s337_encaps, urefs, nb_urefs, max_urefs, blockers, upipe_s337_encaps_handle)
 UPIPE_HELPER_UBUF_MGR(upipe_s337_encaps, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_s337_encaps_check,

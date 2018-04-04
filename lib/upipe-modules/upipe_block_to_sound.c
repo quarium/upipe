@@ -74,14 +74,8 @@ struct upipe_block_to_sound {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -94,7 +88,7 @@ struct upipe_block_to_sound {
 UPIPE_HELPER_UPIPE(upipe_block_to_sound, upipe, UPIPE_BLOCK_TO_SOUND_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_block_to_sound, urefcount, upipe_block_to_sound_free)
 UPIPE_HELPER_FLOW(upipe_block_to_sound, UREF_SOUND_FLOW_DEF);
-UPIPE_HELPER_OUTPUT(upipe_block_to_sound, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_block_to_sound, helper_output);
 UPIPE_HELPER_UBUF_MGR(upipe_block_to_sound, ubuf_mgr, flow_format, ubuf_mgr_request,
                       NULL,
                       upipe_block_to_sound_register_output_request,

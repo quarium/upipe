@@ -82,14 +82,8 @@ struct upipe_netmap_source {
     /** uclock request */
     struct urequest uclock_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -113,7 +107,7 @@ UPIPE_HELPER_UPIPE(upipe_netmap_source, upipe, UPIPE_NETMAP_SOURCE_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_netmap_source, urefcount, upipe_netmap_source_free)
 UPIPE_HELPER_VOID(upipe_netmap_source)
 
-UPIPE_HELPER_OUTPUT(upipe_netmap_source, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_netmap_source, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_netmap_source, uref_mgr, uref_mgr_request,
                       upipe_netmap_source_check,
                       upipe_netmap_source_register_output_request,

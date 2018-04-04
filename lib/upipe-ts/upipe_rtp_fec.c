@@ -120,14 +120,8 @@ struct upipe_rtp_fec {
     /* number of packets recovered */
     uint64_t recovered;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** date_sys of previous packet */
     uint64_t prev_date_sys;
@@ -139,7 +133,7 @@ struct upipe_rtp_fec {
 UPIPE_HELPER_UPIPE(upipe_rtp_fec, upipe, UPIPE_RTP_FEC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_rtp_fec, urefcount, upipe_rtp_fec_free);
 
-UPIPE_HELPER_OUTPUT(upipe_rtp_fec, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_rtp_fec, helper_output)
 
 UPIPE_HELPER_UCLOCK(upipe_rtp_fec, uclock, uclock_request, NULL,
                     upipe_rtp_fec_register_output_request,

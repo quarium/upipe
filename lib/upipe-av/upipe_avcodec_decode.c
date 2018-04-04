@@ -101,14 +101,8 @@ struct upipe_avcdec {
     struct uref *flow_def_check;
     /** structure provided by the ubuf_mgr request */
     struct uref *flow_def_provided;
-    /** output flow */
-    struct uref *flow_def;
-    /** output pipe */
-    struct upipe *output;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -176,7 +170,7 @@ struct upipe_avcdec {
 UPIPE_HELPER_UPIPE(upipe_avcdec, upipe, UPIPE_AVCDEC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_avcdec, urefcount, upipe_avcdec_close)
 UPIPE_HELPER_VOID(upipe_avcdec)
-UPIPE_HELPER_OUTPUT(upipe_avcdec, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_avcdec, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_avcdec, flow_def_input, flow_def_attr)
 UPIPE_HELPER_FLOW_DEF_CHECK(upipe_avcdec, flow_def_check)
 

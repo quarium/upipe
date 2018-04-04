@@ -65,14 +65,8 @@ struct upipe_chunk_stream {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** maximum outbound block size */
     unsigned int mtu;
@@ -95,7 +89,7 @@ struct upipe_chunk_stream {
 UPIPE_HELPER_UPIPE(upipe_chunk_stream, upipe, UPIPE_CHUNK_STREAM_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_chunk_stream, urefcount, upipe_chunk_stream_free);
 UPIPE_HELPER_VOID(upipe_chunk_stream);
-UPIPE_HELPER_OUTPUT(upipe_chunk_stream, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_chunk_stream, helper_output);
 UPIPE_HELPER_UREF_STREAM(upipe_chunk_stream, next_uref, next_uref_size, urefs, NULL)
 
 /** @internal @This handles data.

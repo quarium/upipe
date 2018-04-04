@@ -94,14 +94,8 @@ struct upipe_qt_html {
     struct urefcount urefcount;
     struct urefcount urefcountfin;
 
-    /** output pipe */
-    struct upipe *output;
-    /** output flow */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -154,7 +148,7 @@ UPIPE_HELPER_UPIPE(upipe_qt_html, upipe, UPIPE_QT_HTML_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_qt_html, urefcount, upipe_qt_html_free)
 UPIPE_HELPER_VOID(upipe_qt_html)
 
-UPIPE_HELPER_OUTPUT(upipe_qt_html, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_qt_html, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_qt_html, uref_mgr, uref_mgr_request,
                       upipe_qt_html_check,
                       upipe_qt_html_register_output_request,

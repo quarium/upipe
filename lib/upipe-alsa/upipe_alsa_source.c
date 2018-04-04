@@ -129,14 +129,8 @@ struct upipe_alsource {
     /** period */
     uint64_t period;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -148,7 +142,7 @@ UPIPE_HELPER_VOID(upipe_alsource)
 UPIPE_HELPER_UPUMP_MGR(upipe_alsource, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_alsource, upump, upump_mgr)
 UPIPE_HELPER_UCLOCK(upipe_alsource, uclock, uclock_request, NULL, upipe_throw_provide_request, NULL)
-UPIPE_HELPER_OUTPUT(upipe_alsource, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_alsource, helper_output)
 
 UPIPE_HELPER_UREF_MGR(upipe_alsource, uref_mgr, uref_mgr_request,
                       upipe_alsource_check,

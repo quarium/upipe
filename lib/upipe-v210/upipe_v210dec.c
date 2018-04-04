@@ -79,14 +79,8 @@ struct upipe_v210dec {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** temporary uref storage (used during urequest) */
     struct uchain urefs;
@@ -122,7 +116,7 @@ UPIPE_HELPER_UPIPE(upipe_v210dec, upipe, UPIPE_V210DEC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_v210dec, urefcount, upipe_v210dec_free);
 //UPIPE_HELPER_VOID(upipe_v210dec);
 UPIPE_HELPER_FLOW(upipe_v210dec, "pic.");
-UPIPE_HELPER_OUTPUT(upipe_v210dec, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_v210dec, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_v210dec, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_v210dec_check,
                       upipe_v210dec_register_output_request,
@@ -209,7 +203,9 @@ static bool upipe_v210dec_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (v210dec->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_v210dec_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     size_t input_hsize, input_vsize;
@@ -231,7 +227,7 @@ static bool upipe_v210dec_handle(struct upipe *upipe, struct uref *uref,
     }
 
     uint64_t output_hsize;
-    if (unlikely(!ubase_check(uref_pic_flow_get_hsize(v210dec->flow_def, &output_hsize)))) {
+    if (unlikely(!ubase_check(uref_pic_flow_get_hsize(flow_def, &output_hsize)))) {
         upipe_warn(upipe, "could not find output picture size");
         uref_free(uref);
         return true;
@@ -386,7 +382,9 @@ static int upipe_v210dec_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_v210dec_store_flow_def(upipe, flow_format);
 
-    if (v210dec->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_v210dec_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_v210dec_check_input(upipe);

@@ -63,14 +63,8 @@ struct upipe_skip {
     /** skip offset */
     size_t offset;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -79,7 +73,7 @@ struct upipe_skip {
 UPIPE_HELPER_UPIPE(upipe_skip, upipe, UPIPE_SKIP_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_skip, urefcount, upipe_skip_free)
 UPIPE_HELPER_VOID(upipe_skip);
-UPIPE_HELPER_OUTPUT(upipe_skip, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_skip, helper_output);
 
 /** @internal @This handles data.
  *

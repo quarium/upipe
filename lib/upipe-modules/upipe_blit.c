@@ -58,14 +58,8 @@ struct upipe_blit {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** output flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** list of input subpipes */
     struct uchain subs;
@@ -100,7 +94,7 @@ struct upipe_blit {
 UPIPE_HELPER_UPIPE(upipe_blit, upipe, UPIPE_BLIT_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_blit, urefcount, upipe_blit_free)
 UPIPE_HELPER_VOID(upipe_blit)
-UPIPE_HELPER_OUTPUT(upipe_blit, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_blit, helper_output)
 UPIPE_HELPER_UPUMP_MGR(upipe_blit, upump_mgr);
 UPIPE_HELPER_UPUMP(upipe_blit, idler, upump_mgr);
 
@@ -264,7 +258,11 @@ static void upipe_blit_sub_input(struct upipe *upipe, struct uref *uref,
 static int upipe_blit_sub_provide_flow_format(struct upipe *upipe)
 {
     struct upipe_blit *upipe_blit = upipe_blit_from_sub_mgr(upipe->mgr);
-    if (upipe_blit->flow_def == NULL)
+    struct upipe *super = upipe_blit_to_upipe(upipe_blit);
+
+    struct uref *flow_def;
+    if (unlikely(!ubase_check(upipe_blit_get_flow_def(super, &flow_def)) ||
+                 !flow_def))
         return UBASE_ERR_NONE;
 
     struct upipe_blit_sub *sub = upipe_blit_sub_from_upipe(upipe);
@@ -392,7 +390,7 @@ static int upipe_blit_sub_provide_flow_format(struct upipe *upipe)
             alpha = true;
 
         uref_pic_flow_clear_format(uref);
-        uref_pic_flow_copy_format(uref, upipe_blit->flow_def);
+        uref_pic_flow_copy_format(uref, flow_def);
 
         if (alpha)
             uref_pic_flow_add_plane(uref, 1, 1, 1, "a8");
@@ -847,13 +845,17 @@ static int upipe_blit_set_flow_def(struct upipe *upipe, struct uref *flow_def)
 
     struct upipe_blit *upipe_blit = upipe_blit_from_upipe(upipe);
     bool flow_format_change;
-    if (upipe_blit->flow_def == NULL)
+    struct uref *current_flow_def;
+    int ret = upipe_blit_get_flow_def(upipe, &current_flow_def);
+    if (unlikely(!ubase_check(ret)))
+        return ret;
+    if (current_flow_def == NULL)
         flow_format_change = true;
     else
         flow_format_change =
-            uref_pic_flow_compare_format(upipe_blit->flow_def, flow_def) &&
-            !uref_pic_flow_cmp_hsize(upipe_blit->flow_def, flow_def) &&
-            !uref_pic_flow_cmp_vsize(upipe_blit->flow_def, flow_def);
+            uref_pic_flow_compare_format(current_flow_def, flow_def) &&
+            !uref_pic_flow_cmp_hsize(current_flow_def, flow_def) &&
+            !uref_pic_flow_cmp_vsize(current_flow_def, flow_def);
 
     flow_def = uref_dup(flow_def);
     if (unlikely(flow_def == NULL))

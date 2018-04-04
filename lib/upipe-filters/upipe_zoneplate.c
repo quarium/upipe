@@ -48,14 +48,8 @@ struct upipe_zp {
     struct upipe upipe;
     /** refcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow def */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
     /** ubuf manager request */
@@ -72,7 +66,7 @@ static int upipe_zp_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_zp, upipe, UPIPE_ZP_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_zp, urefcount, upipe_zp_free);
 UPIPE_HELPER_FLOW(upipe_zp, EXPECTED_FLOW);
-UPIPE_HELPER_OUTPUT(upipe_zp, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_zp, helper_output);
 UPIPE_HELPER_UBUF_MGR(upipe_zp, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_zp_check,
                       upipe_zp_register_output_request,
@@ -146,10 +140,12 @@ static int upipe_zp_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format)
         upipe_zp_store_flow_def(upipe, flow_format);
 
-    assert(upipe_zp->flow_def);
+    struct uref *flow_def = NULL;
+    upipe_zp_get_flow_def(upipe, &flow_def);
+    assert(flow_def);
 
     if (!upipe_zp->ubuf_mgr)
-        upipe_zp_require_ubuf_mgr(upipe, uref_dup(upipe_zp->flow_def));
+        upipe_zp_require_ubuf_mgr(upipe, uref_dup(flow_def));
     return UBASE_ERR_NONE;
 }
 
@@ -163,12 +159,15 @@ static int upipe_zp_check(struct upipe *upipe, struct uref *flow_format)
 static int upipe_zp_draw(struct upipe *upipe, struct uref *uref)
 {
     struct upipe_zp *upipe_zp = upipe_zp_from_upipe(upipe);
+    struct uref *flow_def = NULL;
     int frame = upipe_zp->frame;
 
+    upipe_zp_get_flow_def(upipe, &flow_def);
+
     uint64_t hsize, vsize;
-    assert(upipe_zp->flow_def);
-    ubase_assert(uref_pic_flow_get_hsize(upipe_zp->flow_def, &hsize));
-    ubase_assert(uref_pic_flow_get_vsize(upipe_zp->flow_def, &vsize));
+    assert(flow_def);
+    ubase_assert(uref_pic_flow_get_hsize(flow_def, &hsize));
+    ubase_assert(uref_pic_flow_get_vsize(flow_def, &vsize));
 
     struct ubuf *ubuf = ubuf_pic_alloc(upipe_zp->ubuf_mgr, hsize, vsize);
     UBASE_ALLOC_RETURN(ubuf);
@@ -242,7 +241,11 @@ static int upipe_zp_set_flow_def(struct upipe *upipe, struct uref *flow_def)
         fps.num = UCLOCK_FREQ;
         fps.den = duration;
         urational_simplify(&fps);
-        UBASE_RETURN(uref_pic_flow_set_fps(upipe_zp->flow_def, fps));
+
+        struct uref *output_flow_def = NULL;
+        upipe_zp_get_flow_def(upipe, &output_flow_def);
+        assert(output_flow_def);
+        UBASE_RETURN(uref_pic_flow_set_fps(output_flow_def, fps));
     }
 
     return UBASE_ERR_NONE;

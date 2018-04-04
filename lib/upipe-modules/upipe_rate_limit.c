@@ -58,14 +58,8 @@ struct upipe_rate_limit {
     unsigned int max_urefs;
     /** list of input blockers */
     struct uchain blockers;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow format */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** output request list */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** upump manager */
     struct upump_mgr *upump_mgr;
     /** upump */
@@ -101,8 +95,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_rate_limit, urefcount, upipe_rate_limit_free);
 UPIPE_HELPER_VOID(upipe_rate_limit);
 UPIPE_HELPER_INPUT(upipe_rate_limit, urefs, nb_urefs, max_urefs, blockers,
                    upipe_rate_limit_process);
-UPIPE_HELPER_OUTPUT(upipe_rate_limit, output, flow_def, output_state,
-                    request_list);
+UPIPE_HELPER_OUTPUT2(upipe_rate_limit, helper_output);
 UPIPE_HELPER_UPUMP_MGR(upipe_rate_limit, upump_mgr);
 UPIPE_HELPER_UPUMP(upipe_rate_limit, upump, upump_mgr);
 UPIPE_HELPER_UCLOCK(upipe_rate_limit, uclock, uclock_request,

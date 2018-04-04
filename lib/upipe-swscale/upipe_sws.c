@@ -74,14 +74,8 @@ struct upipe_sws {
     struct uref *flow_def_input;
     /** attributes added by the pipe */
     struct uref *flow_def_attr;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -129,7 +123,7 @@ struct upipe_sws {
 UPIPE_HELPER_UPIPE(upipe_sws, upipe, UPIPE_SWS_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_sws, urefcount, upipe_sws_free)
 UPIPE_HELPER_FLOW(upipe_sws, "pic.");
-UPIPE_HELPER_OUTPUT(upipe_sws, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_sws, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_sws, flow_def_input, flow_def_attr)
 UPIPE_HELPER_UBUF_MGR(upipe_sws, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_sws_check,
@@ -185,7 +179,9 @@ static bool upipe_sws_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (upipe_sws->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_sws_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     size_t input_hsize, input_vsize;
@@ -404,7 +400,9 @@ static int upipe_sws_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_sws_store_flow_def(upipe, flow_format);
 
-    if (upipe_sws->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_sws_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_sws_check_input(upipe);

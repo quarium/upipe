@@ -71,14 +71,8 @@ struct upipe_ts_sync {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** TS packet size */
     size_t output_size;
@@ -103,7 +97,7 @@ UPIPE_HELPER_VOID(upipe_ts_sync)
 UPIPE_HELPER_SYNC(upipe_ts_sync, acquired)
 UPIPE_HELPER_UREF_STREAM(upipe_ts_sync, next_uref, next_uref_size, urefs, NULL)
 
-UPIPE_HELPER_OUTPUT(upipe_ts_sync, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_sync, helper_output)
 UPIPE_HELPER_OUTPUT_SIZE(upipe_ts_sync, output_size)
 
 /** @internal @This allocates a ts_sync pipe.

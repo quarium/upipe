@@ -108,14 +108,8 @@ struct upipe_dveo_asi_src {
     /** uclock request */
     struct urequest uclock_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -141,7 +135,7 @@ UPIPE_HELPER_UPIPE(upipe_dveo_asi_src, upipe, UPIPE_DVEO_ASI_SRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dveo_asi_src, urefcount, upipe_dveo_asi_src_free)
 UPIPE_HELPER_VOID(upipe_dveo_asi_src)
 
-UPIPE_HELPER_OUTPUT(upipe_dveo_asi_src, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dveo_asi_src, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_dveo_asi_src, uref_mgr, uref_mgr_request, upipe_dveo_asi_src_check,
                       upipe_dveo_asi_src_register_output_request,
                       upipe_dveo_asi_src_unregister_output_request)

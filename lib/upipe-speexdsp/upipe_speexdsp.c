@@ -64,14 +64,8 @@ struct upipe_speexdsp {
     struct uref *flow_def_input;
     /** attributes added by the pipe */
     struct uref *flow_def_attr;
-    /** output flow */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
-    /** output pipe */
-    struct upipe *output;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -111,7 +105,7 @@ struct upipe_speexdsp {
 UPIPE_HELPER_UPIPE(upipe_speexdsp, upipe, UPIPE_SPEEXDSP_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_speexdsp, urefcount, upipe_speexdsp_free);
 UPIPE_HELPER_VOID(upipe_speexdsp)
-UPIPE_HELPER_OUTPUT(upipe_speexdsp, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_speexdsp, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_speexdsp, flow_def_input, flow_def_attr)
 UPIPE_HELPER_UBUF_MGR(upipe_speexdsp, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_speexdsp_check,
@@ -233,7 +227,9 @@ static int upipe_speexdsp_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_speexdsp_store_flow_def(upipe, flow_format);
 
-    if (upipe_speexdsp->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_speexdsp_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_speexdsp_check_input(upipe);

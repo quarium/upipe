@@ -57,14 +57,8 @@ struct upipe_ts_psi_join {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** list of input subpipes */
     struct uchain subs;
@@ -79,8 +73,7 @@ struct upipe_ts_psi_join {
 UPIPE_HELPER_UPIPE(upipe_ts_psi_join, upipe, UPIPE_TS_PSI_JOIN_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_psi_join, urefcount, upipe_ts_psi_join_free)
 UPIPE_HELPER_FLOW(upipe_ts_psi_join, EXPECTED_FLOW_DEF)
-UPIPE_HELPER_OUTPUT(upipe_ts_psi_join, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_psi_join, helper_output)
 
 /** @internal @This is the private context of an input of a ts_psi_join pipe. */
 struct upipe_ts_psi_join_sub {
@@ -309,8 +302,8 @@ static int upipe_ts_psi_join_build_flow_def(struct upipe *upipe)
     struct upipe_ts_psi_join *upipe_ts_psi_join =
         upipe_ts_psi_join_from_upipe(upipe);
 
-    struct uref *flow_def = upipe_ts_psi_join->flow_def;
-    upipe_ts_psi_join->flow_def = NULL;
+    struct uref *flow_def = upipe_ts_psi_join->helper_output.flow_def;
+    upipe_ts_psi_join->helper_output.flow_def = NULL;
 
     uint64_t octetrate = 0;
     struct urational section_freq;

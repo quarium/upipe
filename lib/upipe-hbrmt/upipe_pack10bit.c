@@ -59,14 +59,8 @@ struct upipe_pack10bit {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** temporary uref storage (used during urequest) */
     struct uchain urefs;
@@ -93,7 +87,7 @@ static int upipe_pack10bit_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_pack10bit, upipe, UPIPE_PACK10BIT_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_pack10bit, urefcount, upipe_pack10bit_free);
 UPIPE_HELPER_VOID(upipe_pack10bit);
-UPIPE_HELPER_OUTPUT(upipe_pack10bit, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_pack10bit, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_pack10bit, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_pack10bit_check,
                       upipe_pack10bit_register_output_request,
@@ -118,7 +112,9 @@ static bool upipe_pack10bit_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (upipe_pack10bit->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_pack10bit_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     const uint8_t *src = NULL;
@@ -191,7 +187,9 @@ static int upipe_pack10bit_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_pack10bit_store_flow_def(upipe, flow_format);
 
-    if (upipe_pack10bit->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_pack10bit_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_pack10bit_check_input(upipe);

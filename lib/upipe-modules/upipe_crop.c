@@ -63,14 +63,8 @@ struct upipe_crop {
     /** configured offset from the bottom border */
     int64_t boffset;
 
-    /** output pipe */
-    struct upipe *output;
-    /** output flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** computed output horizontal size */
     uint64_t out_hsize;
@@ -99,7 +93,7 @@ struct upipe_crop {
 UPIPE_HELPER_UPIPE(upipe_crop, upipe, UPIPE_CROP_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_crop, urefcount, upipe_crop_free)
 UPIPE_HELPER_VOID(upipe_crop)
-UPIPE_HELPER_OUTPUT(upipe_crop, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_crop, helper_output)
 
 /** @internal @This allocates a crop pipe.
  *
@@ -170,11 +164,13 @@ static void upipe_crop_input(struct upipe *upipe, struct uref *uref,
 static int upipe_crop_prepare(struct upipe *upipe)
 {
     struct upipe_crop *crop = upipe_crop_from_upipe(upipe);
-    if (crop->flow_def == NULL)
+    struct uref *flow_def = NULL;
+
+    upipe_crop_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
-    struct uref *flow_def = crop->flow_def;
-    crop->flow_def = NULL;
+    crop->helper_output.flow_def = NULL;
     uref_pic_delete_lpadding(flow_def);
     uref_pic_delete_rpadding(flow_def);
     uref_pic_delete_tpadding(flow_def);

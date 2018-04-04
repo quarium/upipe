@@ -212,22 +212,15 @@ struct upipe_bmd_src_output {
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
 };
 
 UPIPE_HELPER_UPIPE(upipe_bmd_src_output, upipe, UPIPE_BMD_SRC_OUTPUT_SIGNATURE)
-UPIPE_HELPER_OUTPUT(upipe_bmd_src_output, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_bmd_src_output, helper_output)
 
 /** @internal @This is the private context of a bmdsrc pipe. */
 struct upipe_bmd_src {

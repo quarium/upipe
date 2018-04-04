@@ -54,14 +54,8 @@ struct upipe_rtp_pcm_unpack {
     struct urefcount urefcount;
 
     /* output stuff */
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** sample rate */
     uint64_t rate;
@@ -98,8 +92,7 @@ static bool upipe_rtp_pcm_unpack_handle(struct upipe *upipe, struct uref *uref,
 UPIPE_HELPER_UPIPE(upipe_rtp_pcm_unpack, upipe, UPIPE_RTP_PCM_UNPACK_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_rtp_pcm_unpack, urefcount, upipe_rtp_pcm_unpack_free)
 UPIPE_HELPER_VOID(upipe_rtp_pcm_unpack)
-UPIPE_HELPER_OUTPUT(upipe_rtp_pcm_unpack, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_rtp_pcm_unpack, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_rtp_pcm_unpack, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_rtp_pcm_unpack_check,
                       upipe_rtp_pcm_unpack_register_output_request,

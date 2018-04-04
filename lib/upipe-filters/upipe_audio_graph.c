@@ -83,14 +83,8 @@ struct upipe_agraph {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** output flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** peak value */
     double peak[255];
@@ -132,7 +126,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_agraph, urefcount, upipe_agraph_free)
 UPIPE_HELPER_FLOW(upipe_agraph, OUTPUT_FLOW_DEF)
 UPIPE_HELPER_INPUT(upipe_agraph, urefs, nb_urefs, max_urefs, blockers,
                    upipe_agraph_handle)
-UPIPE_HELPER_OUTPUT(upipe_agraph, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_agraph, helper_output)
 UPIPE_HELPER_FLOW_FORMAT(upipe_agraph, request,
                          upipe_agraph_check_flow_format,
                          upipe_agraph_register_output_request,

@@ -70,14 +70,8 @@ struct upipe_h265f {
     struct urefcount urefcount;
 
     /* output stuff */
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
     /** attributes added by the pipe */
@@ -244,7 +238,7 @@ UPIPE_HELPER_SYNC(upipe_h265f, acquired)
 UPIPE_HELPER_UREF_STREAM(upipe_h265f, next_uref, next_uref_size, urefs,
                          upipe_h265f_promote_uref)
 
-UPIPE_HELPER_OUTPUT(upipe_h265f, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_h265f, helper_output)
 UPIPE_HELPER_INPUT(upipe_h265f, request_urefs, nb_urefs, max_urefs, blockers, upipe_h265f_handle)
 UPIPE_HELPER_FLOW_FORMAT(upipe_h265f, request, upipe_h265f_check_flow_format,
                          upipe_h265f_register_output_request,

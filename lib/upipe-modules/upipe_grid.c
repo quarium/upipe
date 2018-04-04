@@ -139,14 +139,8 @@ struct upipe_grid_out {
     struct uref *input_flow_def;
     /** input flow attributes */
     struct uref *input_flow_attr;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow def */
-    struct uref *flow_def;
-    /** output internal state */
-    enum upipe_helper_output_state output_state;
-    /** output request list */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** inputs */
     struct uchain inputs;
     /** true if flow def is from current input */
@@ -170,8 +164,7 @@ UPIPE_HELPER_UPIPE(upipe_grid_out, upipe, UPIPE_GRID_OUT_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_grid_out, urefcount,
                        upipe_grid_out_free);
 UPIPE_HELPER_VOID(upipe_grid_out);
-UPIPE_HELPER_OUTPUT(upipe_grid_out, output, flow_def, output_state,
-                    requests);
+UPIPE_HELPER_OUTPUT2(upipe_grid_out, helper_output);
 UPIPE_HELPER_SUBPIPE(upipe_grid, upipe_grid_out, output, out_mgr,
                      outputs, uchain);
 UPIPE_HELPER_FLOW_DEF(upipe_grid_out, input_flow_def, input_flow_attr);

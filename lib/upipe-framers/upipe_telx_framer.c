@@ -59,14 +59,8 @@ struct upipe_telxf {
     struct urefcount urefcount;
 
     /* output stuff */
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
     /** attributes in the sequence header */
@@ -97,7 +91,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_telxf, urefcount, upipe_telxf_free)
 UPIPE_HELPER_VOID(upipe_telxf)
 UPIPE_HELPER_SYNC(upipe_telxf, acquired)
 
-UPIPE_HELPER_OUTPUT(upipe_telxf, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_telxf, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_telxf, flow_def_input, flow_def_attr)
 
 /** @internal @This allocates an telxf pipe.

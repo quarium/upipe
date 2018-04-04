@@ -53,14 +53,8 @@ struct upipe_audio_copy {
     struct uref *input_flow_def;
     /** flow def attr */
     struct uref *flow_def_attr;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow format */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** requests list */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** list of retained urefs */
     struct uchain urefs;
     /** output size */
@@ -77,8 +71,7 @@ UPIPE_HELPER_UPIPE(upipe_audio_copy, upipe, UPIPE_AUDIO_COPY_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_audio_copy, urefcount, upipe_audio_copy_free);
 UPIPE_HELPER_FLOW(upipe_audio_copy, EXPECTED_FLOW_DEF);
 UPIPE_HELPER_FLOW_DEF(upipe_audio_copy, input_flow_def, flow_def_attr);
-UPIPE_HELPER_OUTPUT(upipe_audio_copy, output, flow_def, output_state,
-                    requests);
+UPIPE_HELPER_OUTPUT2(upipe_audio_copy, helper_output);
 
 /** @internal @This allocates an audio frame pipe.
  *

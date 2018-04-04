@@ -110,14 +110,8 @@ struct upipe_amtsrc {
     /** uclock request */
     struct urequest uclock_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -139,7 +133,7 @@ UPIPE_HELPER_UPIPE(upipe_amtsrc, upipe, UPIPE_AMTSRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_amtsrc, urefcount, upipe_amtsrc_free)
 UPIPE_HELPER_VOID(upipe_amtsrc)
 
-UPIPE_HELPER_OUTPUT(upipe_amtsrc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_amtsrc, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_amtsrc, uref_mgr, uref_mgr_request,
                       upipe_amtsrc_check,
                       upipe_amtsrc_register_output_request,

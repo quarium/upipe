@@ -80,14 +80,8 @@ struct upipe_vanc_output {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -98,8 +92,7 @@ static int upipe_vanc_output_check(struct upipe *upipe,
                                    struct uref *flow_format);
 
 UPIPE_HELPER_UPIPE(upipe_vanc_output, upipe, UPIPE_VANC_OUTPUT_SIGNATURE)
-UPIPE_HELPER_OUTPUT(upipe_vanc_output, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_vanc_output, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_vanc_output, ubuf_mgr, flow_format,
                       ubuf_mgr_request, upipe_vanc_output_check,
                       upipe_vanc_output_register_output_request,

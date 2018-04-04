@@ -131,14 +131,8 @@ struct upipe_bmd_vanc {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** temporary uref storage (used during urequest) */
     struct uchain urefs;
@@ -165,7 +159,7 @@ static int upipe_bmd_vanc_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_bmd_vanc, upipe, UPIPE_BMD_VANC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_bmd_vanc, urefcount, upipe_bmd_vanc_free)
 UPIPE_HELPER_VOID(upipe_bmd_vanc);
-UPIPE_HELPER_OUTPUT(upipe_bmd_vanc, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_bmd_vanc, helper_output);
 UPIPE_HELPER_UBUF_MGR(upipe_bmd_vanc, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_bmd_vanc_check,
                       upipe_bmd_vanc_register_output_request,
@@ -211,7 +205,9 @@ static int upipe_bmd_vanc_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_bmd_vanc_store_flow_def(upipe, flow_format);
 
-    if (upipe_bmd_vanc->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_bmd_vanc_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_bmd_vanc_check_input(upipe);
@@ -370,7 +366,9 @@ static bool upipe_bmd_vanc_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (upipe_bmd_vanc->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_bmd_vanc_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     size_t hsize, vsize, uref_stride;

@@ -43,6 +43,8 @@ struct upipe_aes_decrypt {
     struct upipe upipe;
     /** refcounting structure */
     struct urefcount urefcount;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** reference to the output pipe */
     struct upipe *output;
     /** reference to the output flow format */
@@ -90,8 +92,7 @@ static bool upipe_aes_decrypt_handle(struct upipe *upipe,
 UPIPE_HELPER_UPIPE(upipe_aes_decrypt, upipe, UPIPE_AES_DECRYPT_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_aes_decrypt, urefcount, upipe_aes_decrypt_no_ref);
 UPIPE_HELPER_VOID(upipe_aes_decrypt);
-UPIPE_HELPER_OUTPUT(upipe_aes_decrypt, output, flow_def, output_state,
-                    requests);
+UPIPE_HELPER_OUTPUT2(upipe_aes_decrypt, helper_output);
 UPIPE_HELPER_UBUF_MGR(upipe_aes_decrypt, ubuf_mgr, flow_format,
                       ubuf_mgr_request,
                       upipe_aes_decrypt_check,

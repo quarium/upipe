@@ -49,14 +49,8 @@ struct upipe_ntsc_prepend {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -65,7 +59,7 @@ struct upipe_ntsc_prepend {
 UPIPE_HELPER_UPIPE(upipe_ntsc_prepend, upipe, UPIPE_NTSC_PREPEND_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_ntsc_prepend, urefcount, upipe_ntsc_prepend_free)
 UPIPE_HELPER_VOID(upipe_ntsc_prepend);
-UPIPE_HELPER_OUTPUT(upipe_ntsc_prepend, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ntsc_prepend, helper_output)
 
 /** @internal @This receives incoming uref.
  *

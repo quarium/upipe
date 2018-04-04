@@ -53,14 +53,8 @@ struct upipe_dejitter {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** set to true after the first packet has been sent */
     bool inited;
@@ -77,7 +71,7 @@ struct upipe_dejitter {
 UPIPE_HELPER_UPIPE(upipe_dejitter, upipe, UPIPE_DEJITTER_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dejitter, urefcount, upipe_dejitter_free)
 UPIPE_HELPER_VOID(upipe_dejitter)
-UPIPE_HELPER_OUTPUT(upipe_dejitter, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dejitter, helper_output)
 
 /** @internal @This is the private context of a subpipe of a dejitter pipe. */
 struct upipe_dejitter_sub {
@@ -86,14 +80,8 @@ struct upipe_dejitter_sub {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet on this output */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -102,7 +90,7 @@ struct upipe_dejitter_sub {
 UPIPE_HELPER_UPIPE(upipe_dejitter_sub, upipe, UPIPE_DEJITTER_SUB_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dejitter_sub, urefcount, upipe_dejitter_sub_free)
 UPIPE_HELPER_VOID(upipe_dejitter_sub)
-UPIPE_HELPER_OUTPUT(upipe_dejitter_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dejitter_sub, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_dejitter, upipe_dejitter_sub, sub, sub_mgr, subs, uchain)
 

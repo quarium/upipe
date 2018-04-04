@@ -54,14 +54,8 @@ struct upipe_ts_psim {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** next uref to be processed */
     struct uref *next_uref;
@@ -76,7 +70,7 @@ UPIPE_HELPER_UPIPE(upipe_ts_psim, upipe, UPIPE_TS_PSIM_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_psim, urefcount, upipe_ts_psim_free)
 UPIPE_HELPER_VOID(upipe_ts_psim)
 UPIPE_HELPER_SYNC(upipe_ts_psim, acquired)
-UPIPE_HELPER_OUTPUT(upipe_ts_psim, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_psim, helper_output)
 
 /** @internal @This allocates a ts_psim pipe.
  *

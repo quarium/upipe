@@ -82,6 +82,8 @@ struct upipe_rtcpfb {
     /** ubuf mgr structures */
     struct ubuf_mgr *ubuf_mgr;
     struct urequest ubuf_mgr_request;
+    /** ubuf manager flow format */
+    struct uref *flow_format;
 
     struct upipe_mgr sub_mgr;
 
@@ -98,16 +100,10 @@ struct upipe_rtcpfb {
     /** expected sequence number */
     int expected_seqnum;
 
-    /** output pipe */
-    struct upipe *output;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** buffer latency */
     uint64_t latency;
@@ -121,12 +117,12 @@ static int upipe_rtcpfb_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_rtcpfb, upipe, UPIPE_RTCPFB_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_rtcpfb, urefcount, upipe_rtcpfb_no_input);
 UPIPE_HELPER_VOID(upipe_rtcpfb);
-UPIPE_HELPER_OUTPUT(upipe_rtcpfb, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_rtcpfb, helper_output);
 UPIPE_HELPER_UREF_MGR(upipe_rtcpfb, uref_mgr, uref_mgr_request,
                       upipe_rtcpfb_check,
                       upipe_rtcpfb_register_output_request,
                       upipe_rtcpfb_unregister_output_request)
-UPIPE_HELPER_UBUF_MGR(upipe_rtcpfb, ubuf_mgr, flow_def, ubuf_mgr_request,
+UPIPE_HELPER_UBUF_MGR(upipe_rtcpfb, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_rtcpfb_check,
                       upipe_rtcpfb_register_output_request,
                       upipe_rtcpfb_unregister_output_request)
@@ -336,7 +332,9 @@ static int upipe_rtcpfb_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_rtcpfb_store_flow_def(upipe, flow_format);
 
-    if (upipe_rtcpfb->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_rtcpfb_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     if (upipe_rtcpfb->uref_mgr == NULL) {

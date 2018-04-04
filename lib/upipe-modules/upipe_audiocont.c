@@ -77,14 +77,8 @@ struct upipe_audiocont {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** structure to check input flow def */
     struct uref *flow_def_check;
 
@@ -122,7 +116,7 @@ struct upipe_audiocont {
 UPIPE_HELPER_UPIPE(upipe_audiocont, upipe, UPIPE_AUDIOCONT_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_audiocont, urefcount, upipe_audiocont_free)
 UPIPE_HELPER_FLOW(upipe_audiocont, "sound.f32.")
-UPIPE_HELPER_OUTPUT(upipe_audiocont, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_audiocont, helper_output)
 UPIPE_HELPER_FLOW_DEF_CHECK(upipe_audiocont, flow_def_check)
 UPIPE_HELPER_UBUF_MGR(upipe_audiocont, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_audiocont_check,
@@ -674,7 +668,9 @@ static void upipe_audiocont_input(struct upipe *upipe, struct uref *uref,
     struct upipe_audiocont *upipe_audiocont = upipe_audiocont_from_upipe(upipe);
     uint64_t next_pts = 0, next_duration = 0;
 
-    if (unlikely(upipe_audiocont->flow_def == NULL)) {
+    struct uref *flow_def;
+    if (unlikely(!ubase_check(upipe_audiocont_get_flow_def(upipe, &flow_def)) ||
+                 !flow_def)) {
         upipe_warn_va(upipe, "need to define flow def first");
         uref_free(uref);
         return;

@@ -50,14 +50,8 @@ struct upipe_dvbcsa_dec {
     struct upipe upipe;
     /** urefcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** request list */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** dvbcsa key */
     dvbcsa_key_t *key;
     /** common dvbcsa structure */
@@ -70,7 +64,7 @@ UBASE_FROM_TO(upipe_dvbcsa_dec, upipe_dvbcsa_common, common, common);
 UPIPE_HELPER_UPIPE(upipe_dvbcsa_dec, upipe, UPIPE_DVBCSA_DEC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_dvbcsa_dec, urefcount, upipe_dvbcsa_dec_free);
 UPIPE_HELPER_VOID(upipe_dvbcsa_dec);
-UPIPE_HELPER_OUTPUT(upipe_dvbcsa_dec, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_dvbcsa_dec, helper_output);
 
 /** @internal @This frees a dvbcsa decription pipe.
  *

@@ -130,16 +130,10 @@ struct upipe_m3u_reader {
     /** urefcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** temporary flow format */
     struct uref *current_flow_def;
-    /** output flow definition */
-    struct uref *output_flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** for uref stream helper */
     struct uref *next_uref;
@@ -166,8 +160,7 @@ UPIPE_HELPER_UPIPE(upipe_m3u_reader, upipe, UPIPE_M3U_READER_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_m3u_reader, urefcount, upipe_m3u_reader_free)
 UPIPE_HELPER_VOID(upipe_m3u_reader)
 
-UPIPE_HELPER_OUTPUT(upipe_m3u_reader, output, output_flow_def,
-                    output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_m3u_reader, helper_output)
 
 UPIPE_HELPER_UREF_STREAM(upipe_m3u_reader, next_uref, next_uref_size,
                          urefs, NULL)

@@ -68,14 +68,8 @@ struct upipe_dvbsubf {
     struct urefcount urefcount;
 
     /* output stuff */
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
     /** attributes in the sequence header */
@@ -100,7 +94,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_dvbsubf, urefcount, upipe_dvbsubf_free)
 UPIPE_HELPER_VOID(upipe_dvbsubf)
 UPIPE_HELPER_SYNC(upipe_dvbsubf, acquired)
 
-UPIPE_HELPER_OUTPUT(upipe_dvbsubf, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dvbsubf, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_dvbsubf, flow_def_input, flow_def_attr)
 
 /** @internal @This allocates an dvbsubf pipe.
@@ -172,8 +166,10 @@ static void upipe_dvbsubf_work(struct upipe *upipe, struct upump **upump_p)
         offset += length + DVBSUBS_HEADER_SIZE;
     }
 
+    struct uref *flow_def = NULL;
+    upipe_dvbsubf_get_flow_def(upipe, &flow_def);
     if (display_def != upipe_dvbsubf->display_def ||
-        upipe_dvbsubf->flow_def == NULL) {
+        flow_def == NULL) {
         upipe_dvbsubf->display_def = display_def;
 
         struct uref *flow_def = upipe_dvbsubf_alloc_flow_def_attr(upipe);

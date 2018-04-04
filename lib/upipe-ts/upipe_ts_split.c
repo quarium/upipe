@@ -97,14 +97,8 @@ struct upipe_ts_split_sub {
     /** structure for double-linked lists, PID */
     struct uchain uchain_pid;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet on this output */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -113,7 +107,7 @@ struct upipe_ts_split_sub {
 UPIPE_HELPER_UPIPE(upipe_ts_split_sub, upipe, UPIPE_TS_SPLIT_OUTPUT_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_split_sub, urefcount, upipe_ts_split_sub_free)
 UPIPE_HELPER_FLOW(upipe_ts_split_sub, NULL)
-UPIPE_HELPER_OUTPUT(upipe_ts_split_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_split_sub, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_ts_split, upipe_ts_split_sub, sub, sub_mgr,
                      subs, uchain)
@@ -201,9 +195,11 @@ static void upipe_ts_split_sub_free(struct upipe *upipe)
         upipe_ts_split_from_sub_mgr(upipe->mgr);
 
     /* remove output from the subs list */
-    if (upipe_ts_split_sub->flow_def != NULL) {
+    struct uref *flow_def = NULL;
+    upipe_ts_split_sub_get_flow_def(upipe, &flow_def);
+    if (flow_def != NULL) {
         uint64_t pid;
-        if (ubase_check(uref_ts_flow_get_pid(upipe_ts_split_sub->flow_def, &pid)))
+        if (ubase_check(uref_ts_flow_get_pid(flow_def, &pid)))
             upipe_ts_split_pid_unset(
                     upipe_ts_split_to_upipe(upipe_ts_split), pid,
                     upipe_ts_split_sub);

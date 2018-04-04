@@ -79,14 +79,8 @@ struct upipe_swr {
     struct uref *flow_def_input;
     /** attributes added by the pipe */
     struct uref *flow_def_attr;
-    /** output flow */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
-    /** output pipe */
-    struct upipe *output;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -125,7 +119,7 @@ struct upipe_swr {
 UPIPE_HELPER_UPIPE(upipe_swr, upipe, UPIPE_SWR_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_swr, urefcount, upipe_swr_free)
 UPIPE_HELPER_FLOW(upipe_swr, UREF_SOUND_FLOW_DEF);
-UPIPE_HELPER_OUTPUT(upipe_swr, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_swr, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_swr, flow_def_input, flow_def_attr)
 UPIPE_HELPER_UBUF_MGR(upipe_swr, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_swr_check,
@@ -195,7 +189,9 @@ static bool upipe_swr_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (upipe_swr->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_swr_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     struct ubuf *ubuf;
@@ -320,7 +316,9 @@ static int upipe_swr_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_swr_store_flow_def(upipe, flow_format);
 
-    if (upipe_swr->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_swr_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_swr_check_input(upipe);

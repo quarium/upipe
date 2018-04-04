@@ -84,14 +84,8 @@
 /** @internal @This is the private context of a ts sig subpipe outputting a
  * table. */
 struct upipe_ts_sig_output {
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** output octetrate */
     uint64_t octetrate;
@@ -103,8 +97,7 @@ struct upipe_ts_sig_output {
 };
 
 UPIPE_HELPER_UPIPE(upipe_ts_sig_output, upipe, UPIPE_TS_SIG_OUTPUT_SIGNATURE)
-UPIPE_HELPER_OUTPUT(upipe_ts_sig_output, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_sig_output, helper_output)
 
 /** @internal @This is the private context of a ts sig pipe. */
 struct upipe_ts_sig {
@@ -128,14 +121,8 @@ struct upipe_ts_sig {
     /** uclock request */
     struct urequest uclock_request;
 
-    /** pipe acting as pseudo-output (for requests) */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *output_flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** input flow definition packet */
     struct uref *flow_def;
@@ -215,8 +202,7 @@ struct upipe_ts_sig {
 
 UPIPE_HELPER_UPIPE(upipe_ts_sig, upipe, UPIPE_TS_SIG_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_sig, urefcount, upipe_ts_sig_free)
-UPIPE_HELPER_OUTPUT(upipe_ts_sig, output, output_flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_sig, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_ts_sig, uref_mgr, uref_mgr_request, NULL,
                       upipe_ts_sig_register_output_request,
                       upipe_ts_sig_unregister_output_request)
@@ -1730,7 +1716,10 @@ static void upipe_ts_sig_send_eits(struct upipe *upipe, uint64_t cr_sys)
         return;
 
     struct upipe_ts_sig_output *output = upipe_ts_sig_to_eit_output(sig);
-    if (output->flow_def == NULL || cr_sys < output->cr_sys)
+    struct uref *flow_def = NULL;
+    upipe_ts_sig_output_get_flow_def(upipe_ts_sig_output_to_upipe(output),
+                                     &flow_def);
+    if (flow_def == NULL || cr_sys < output->cr_sys)
         return;
 
     uint64_t last_cr_sys = UINT64_MAX;

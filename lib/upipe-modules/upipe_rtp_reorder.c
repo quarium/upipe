@@ -82,14 +82,8 @@ struct upipe_rtpr {
     /** list of input subpipes */
     struct uchain inputs;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper_output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -118,7 +112,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_rtpr, urefcount, upipe_rtpr_no_input);
 UPIPE_HELPER_VOID(upipe_rtpr);
 UPIPE_HELPER_UPUMP_MGR(upipe_rtpr, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_rtpr, upump, upump_mgr)
-UPIPE_HELPER_OUTPUT(upipe_rtpr, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_rtpr, helper_output);
 UPIPE_HELPER_UCLOCK(upipe_rtpr, uclock, uclock_request, upipe_rtpr_check, upipe_throw_provide_request, NULL)
 
 UBASE_FROM_TO(upipe_rtpr, urefcount, urefcount_real, urefcount_real)

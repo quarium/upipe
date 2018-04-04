@@ -57,14 +57,8 @@ struct upipe_htons {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -73,7 +67,7 @@ struct upipe_htons {
 UPIPE_HELPER_UPIPE(upipe_htons, upipe, UPIPE_HTONS_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_htons, urefcount, upipe_htons_free)
 UPIPE_HELPER_VOID(upipe_htons);
-UPIPE_HELPER_OUTPUT(upipe_htons, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_htons, helper_output);
 
 /** @internal @This handles input.
  *

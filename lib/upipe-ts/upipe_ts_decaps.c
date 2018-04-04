@@ -54,14 +54,8 @@ struct upipe_ts_decaps {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** last continuity counter for this PID, or -1 */
     int8_t last_cc;
@@ -78,7 +72,7 @@ struct upipe_ts_decaps {
 UPIPE_HELPER_UPIPE(upipe_ts_decaps, upipe, UPIPE_TS_DECAPS_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_decaps, urefcount, upipe_ts_decaps_free)
 UPIPE_HELPER_VOID(upipe_ts_decaps)
-UPIPE_HELPER_OUTPUT(upipe_ts_decaps, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_decaps, helper_output)
 
 /** @internal @This allocates a ts_decaps pipe.
  *

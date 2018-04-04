@@ -14,11 +14,8 @@ struct upipe_dump {
     /** public upipe structure */
     struct upipe upipe;
 
-    /** for UPIPE_HELPER_OUTPUT */
-    struct upipe *output;
-    enum upipe_helper_output_state output_state;
-    struct uref *flow_def;
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** max dump len */
     size_t max_len;
@@ -27,7 +24,7 @@ struct upipe_dump {
 UPIPE_HELPER_UPIPE(upipe_dump, upipe, UPIPE_DUMP_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dump, urefcount, upipe_dump_free)
 UPIPE_HELPER_VOID(upipe_dump)
-UPIPE_HELPER_OUTPUT(upipe_dump, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dump, helper_output)
 
 static struct upipe *upipe_dump_alloc(struct upipe_mgr *mgr,
                                       struct uprobe *uprobe,

@@ -50,14 +50,8 @@ struct upipe_delay {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** delay to set */
     int64_t delay;
@@ -69,7 +63,7 @@ struct upipe_delay {
 UPIPE_HELPER_UPIPE(upipe_delay, upipe, UPIPE_DELAY_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_delay, urefcount, upipe_delay_free)
 UPIPE_HELPER_VOID(upipe_delay)
-UPIPE_HELPER_OUTPUT(upipe_delay, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_delay, helper_output)
 
 /** @internal @This allocates a delay pipe.
  *

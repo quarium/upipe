@@ -47,14 +47,8 @@ struct upipe_ablk {
     struct upipe upipe;
     /** refcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow def */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** urequest list */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
     /** blank sound */
@@ -75,7 +69,7 @@ static int upipe_ablk_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_ablk, upipe, UPIPE_ABLK_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_ablk, urefcount, upipe_ablk_free);
 UPIPE_HELPER_FLOW(upipe_ablk, UREF_SOUND_FLOW_DEF);
-UPIPE_HELPER_OUTPUT(upipe_ablk, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_ablk, helper_output);
 UPIPE_HELPER_UBUF_MGR(upipe_ablk, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_ablk_check,
                       upipe_ablk_register_output_request,
@@ -107,8 +101,8 @@ static void upipe_ablk_free(struct upipe *upipe)
  * @param flow_def flow definition to check
  * @return an error code
  */
-static int upipe_ablk_check_flow_def(struct upipe *upipe,
-                                     struct uref *flow_def)
+static int upipe_ablk_check_flow_format(struct upipe *upipe,
+                                        struct uref *flow_def)
 {
     uint8_t planes, sample_size, channels;
     uint64_t rate, samples;
@@ -151,7 +145,7 @@ static struct upipe *upipe_ablk_alloc(struct upipe_mgr *mgr,
 
     upipe_throw_ready(upipe);
 
-    if (unlikely(!ubase_check(upipe_ablk_check_flow_def(upipe, flow_def)))) {
+    if (unlikely(!ubase_check(upipe_ablk_check_flow_format(upipe, flow_def)))) {
         uref_free(flow_def);
         upipe_release(upipe);
         return NULL;
@@ -174,7 +168,9 @@ static void upipe_ablk_input(struct upipe *upipe,
 {
     struct upipe_ablk *upipe_ablk = upipe_ablk_from_upipe(upipe);
     struct uref *input_flow_def = upipe_ablk->input_flow_def;
-    struct uref *flow_def = upipe_ablk->flow_def;
+    struct uref *flow_def = NULL;
+
+    upipe_ablk_get_flow_def(upipe, &flow_def);
 
     if (uref->ubuf) {
         upipe_ablk_output(upipe, uref, upump_p);
@@ -248,7 +244,7 @@ static int upipe_ablk_set_flow_def(struct upipe *upipe,
     struct upipe_ablk *upipe_ablk = upipe_ablk_from_upipe(upipe);
 
     if (!ubase_check(uref_flow_match_def(flow_def, UREF_VOID_FLOW_DEF)) &&
-        !ubase_check(upipe_ablk_check_flow_def(upipe, flow_def)))
+        !ubase_check(upipe_ablk_check_flow_format(upipe, flow_def)))
         return UBASE_ERR_INVALID;
 
     struct uref *input_flow_def = uref_dup(flow_def);
@@ -340,11 +336,13 @@ static int upipe_ablk_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format)
         upipe_ablk_store_flow_def(upipe, flow_format);
 
-    if (!upipe_ablk->flow_def)
+    struct uref *flow_def = NULL;
+    upipe_ablk_get_flow_def(upipe, &flow_def);
+    if (!flow_def)
         return UBASE_ERR_NONE;
 
     if (!upipe_ablk->ubuf_mgr) {
-        upipe_ablk_require_ubuf_mgr(upipe, uref_dup(upipe_ablk->flow_def));
+        upipe_ablk_require_ubuf_mgr(upipe, uref_dup(flow_def));
         return UBASE_ERR_NONE;
     }
 

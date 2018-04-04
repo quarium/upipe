@@ -84,10 +84,8 @@
 struct upipe_dtsdi {
     struct urefcount urefcount;
 
-    struct upipe *output;
-    struct uref *flow_def;
-    enum upipe_helper_output_state output_state;
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     unsigned int output_size;
 
@@ -103,7 +101,7 @@ UPIPE_HELPER_UPIPE(upipe_dtsdi, upipe, UPIPE_DTSDI_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dtsdi, urefcount, upipe_dtsdi_free)
 UPIPE_HELPER_VOID(upipe_dtsdi)
 
-UPIPE_HELPER_OUTPUT(upipe_dtsdi, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dtsdi, helper_output)
 UPIPE_HELPER_OUTPUT_SIZE(upipe_dtsdi, output_size)
 
 static int set_flow_def(struct upipe *upipe, struct uref *flow_format)
@@ -391,7 +389,9 @@ static void upipe_dtsdi_input(struct upipe *upipe, struct uref *uref,
             return;
         }
 
-        struct uref *flow_def = uref_sibling_alloc(upipe_dtsdi->flow_def);
+        struct uref *dtsdi_flow_def = NULL;
+        upipe_dtsdi_get_flow_def(upipe, &dtsdi_flow_def);
+        struct uref *flow_def = uref_sibling_alloc(dtsdi_flow_def);
         if (!ubase_check(set_flow_def(upipe, flow_def))) {
             upipe_err_va(upipe, "Could not find frame rate");
             uref_free(uref);

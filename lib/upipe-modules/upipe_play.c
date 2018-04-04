@@ -85,14 +85,8 @@ struct upipe_play_sub {
     /** sink latency request */
     struct urequest latency_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet on this output */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -101,7 +95,7 @@ struct upipe_play_sub {
 UPIPE_HELPER_UPIPE(upipe_play_sub, upipe, UPIPE_PLAY_SUB_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_play_sub, urefcount, upipe_play_sub_free)
 UPIPE_HELPER_VOID(upipe_play_sub)
-UPIPE_HELPER_OUTPUT(upipe_play_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_play_sub, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_play, upipe_play_sub, sub, sub_mgr, subs, uchain)
 
@@ -164,10 +158,11 @@ static struct upipe *upipe_play_sub_alloc(struct upipe_mgr *mgr,
 static void upipe_play_sub_build_flow_def(struct upipe *upipe)
 {
     struct upipe_play_sub *upipe_play_sub = upipe_play_sub_from_upipe(upipe);
-    struct uref *flow_def = upipe_play_sub->flow_def;
+    struct uref *flow_def = NULL;
+    upipe_play_sub_get_flow_def(upipe, &flow_def);
     if (flow_def == NULL)
         return;
-    upipe_play_sub->flow_def = NULL;
+    upipe_play_sub->helper_output.flow_def = NULL;
 
     struct upipe_play *upipe_play = upipe_play_from_sub_mgr(upipe->mgr);
     if (!ubase_check(uref_clock_set_latency(flow_def, upipe_play->latency)))

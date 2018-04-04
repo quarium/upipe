@@ -61,14 +61,8 @@ struct upipe_ebur128 {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output */
-    struct upipe *output;
-    /** output flow */
-    struct uref *output_flow;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** ebur128 state */
     ebur128_state *st;
@@ -86,8 +80,7 @@ struct upipe_ebur128 {
 UPIPE_HELPER_UPIPE(upipe_ebur128, upipe, UPIPE_EBUR128_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_ebur128, urefcount, upipe_ebur128_free)
 UPIPE_HELPER_VOID(upipe_ebur128)
-UPIPE_HELPER_OUTPUT(upipe_ebur128, output, output_flow, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ebur128, helper_output)
 
 /** @internal @This allocates a filter pipe.
  *
@@ -127,7 +120,9 @@ static void upipe_ebur128_input(struct upipe *upipe, struct uref *uref,
     struct upipe_ebur128 *upipe_ebur128 = upipe_ebur128_from_upipe(upipe);
     double loud = 0, lra = 0, global = 0;
 
-    if (unlikely(upipe_ebur128->output_flow == NULL)) {
+    struct uref *flow_def = NULL;
+    upipe_ebur128_get_flow_def(upipe, &flow_def);
+    if (unlikely(flow_def == NULL)) {
         upipe_err_va(upipe, "invalid input");
         uref_free(uref);
         return;

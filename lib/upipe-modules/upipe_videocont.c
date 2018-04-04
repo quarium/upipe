@@ -64,14 +64,8 @@ struct upipe_videocont {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** true if flow definition is up to date */
     bool flow_def_uptodate;
     /** true if subinput format has been copied to output flow def */
@@ -106,7 +100,7 @@ struct upipe_videocont {
 UPIPE_HELPER_UPIPE(upipe_videocont, upipe, UPIPE_VIDEOCONT_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_videocont, urefcount, upipe_videocont_free)
 UPIPE_HELPER_VOID(upipe_videocont)
-UPIPE_HELPER_OUTPUT(upipe_videocont, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_videocont, helper_output)
 
 /** @internal @This is the private context of an input of a videocont pipe. */
 struct upipe_videocont_sub {

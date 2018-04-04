@@ -93,16 +93,10 @@ struct upipe_audio_split_sub {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** attributes / parameters from application */
     struct uref *flow_def_params;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
@@ -134,7 +128,7 @@ UPIPE_HELPER_UPIPE(upipe_audio_split_sub, upipe,
                    UPIPE_AUDIO_SPLIT_OUTPUT_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_audio_split_sub, urefcount,
                        upipe_audio_split_sub_free)
-UPIPE_HELPER_OUTPUT(upipe_audio_split_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_audio_split_sub, helper_output)
 UPIPE_HELPER_FLOW(upipe_audio_split_sub, "sound.")
 UPIPE_HELPER_UBUF_MGR(upipe_audio_split_sub, ubuf_mgr, flow_format,
                       ubuf_mgr_request,

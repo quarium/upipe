@@ -55,6 +55,37 @@ enum upipe_helper_output_state {
     UPIPE_HELPER_OUTPUT_INVALID
 };
 
+struct upipe_helper_output {
+    struct upipe *output;
+    struct uref *flow_def;
+    enum upipe_helper_output_state state;
+    struct uchain urequests;
+};
+
+static inline void upipe_helper_output_init(struct upipe_helper_output *helper)
+{
+    helper->output = NULL;
+    helper->flow_def = NULL;
+    helper->state = UPIPE_HELPER_OUTPUT_NONE;
+    ulist_init(&helper->urequests);
+}
+
+static inline void upipe_helper_output_clean(struct upipe_helper_output *helper)
+{
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&helper->urequests)) != NULL) {
+        struct urequest *urequest = urequest_from_uchain(uchain);
+        if (likely(helper->output != NULL))
+            upipe_unregister_request(helper->output, urequest);
+        urequest_clean(urequest);
+        urequest_free(urequest);
+    }
+    upipe_release(helper->output);
+    helper->output = NULL;
+    uref_free(helper->flow_def);
+    helper->flow_def = NULL;
+}
+
 /** @This declares functions dealing with the output of a pipe,
  * and an associated uref which is the flow definition on the output.
  *
@@ -182,8 +213,7 @@ enum upipe_helper_output_state {
  * @param REQUEST_LIST name of the @tt{struct uchain} field of
  * your private upipe structure
  */
-#define UPIPE_HELPER_OUTPUT(STRUCTURE, OUTPUT, FLOW_DEF, OUTPUT_STATE,      \
-                            REQUEST_LIST)                                   \
+#define UPIPE_HELPER_OUTPUT2(STRUCTURE, HELPER)                             \
 /** @internal @This initializes the private members for this helper.        \
  *                                                                          \
  * @param upipe description structure of the pipe                           \
@@ -191,10 +221,7 @@ enum upipe_helper_output_state {
 static void STRUCTURE##_init_output(struct upipe *upipe)                    \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
-    s->OUTPUT = NULL;                                                       \
-    s->FLOW_DEF = NULL;                                                     \
-    s->OUTPUT_STATE = UPIPE_HELPER_OUTPUT_NONE;                             \
-    ulist_init(&s->REQUEST_LIST);                                           \
+    upipe_helper_output_init(&s->HELPER);                                   \
 }                                                                           \
 /** @internal @This sends a uref to the output. Note that uref is then      \
  * owned by the callee and shouldn't be used any longer.                    \
@@ -208,39 +235,40 @@ static UBASE_UNUSED void STRUCTURE##_output(struct upipe *upipe,            \
                                             struct upump **upump_p)         \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
-    if (unlikely(s->FLOW_DEF == NULL)) {                                    \
+    if (unlikely(s->HELPER.flow_def == NULL)) {                             \
         upipe_warn(upipe, "no flow def, dropping uref");                    \
         uref_free(uref);                                                    \
         return;                                                             \
     }                                                                       \
-    if (unlikely(s->OUTPUT == NULL))                                        \
-        upipe_throw_need_output(upipe, s->FLOW_DEF);                        \
-    if (unlikely(s->OUTPUT == NULL)) {                                      \
+    if (unlikely(s->HELPER.output == NULL))                                 \
+        upipe_throw_need_output(upipe, s->HELPER.flow_def);                 \
+    if (unlikely(s->HELPER.output == NULL)) {                               \
         uref_free(uref);                                                    \
         return;                                                             \
     }                                                                       \
                                                                             \
     bool already_retried = false;                                           \
     for ( ; ; ) {                                                           \
-        if (unlikely(s->FLOW_DEF == NULL)) {                                \
+        if (unlikely(s->HELPER.flow_def == NULL)) {                         \
             upipe_warn(upipe, "no flow def, dropping uref");                \
             uref_free(uref);                                                \
             return;                                                         \
         }                                                                   \
-        switch (s->OUTPUT_STATE) {                                          \
+        switch (s->HELPER.state) {                                          \
             case UPIPE_HELPER_OUTPUT_NONE: {                                \
-                int err = upipe_set_flow_def(s->OUTPUT, s->FLOW_DEF);       \
+                int err = upipe_set_flow_def(s->HELPER.output,              \
+                                             s->HELPER.flow_def);           \
                 if (likely(ubase_check(err))) {                             \
-                    upipe_dbg(s->OUTPUT, "accepted flow def");              \
-                    s->OUTPUT_STATE = UPIPE_HELPER_OUTPUT_VALID;            \
+                    upipe_dbg(s->HELPER.output, "accepted flow def");       \
+                    s->HELPER.state = UPIPE_HELPER_OUTPUT_VALID;            \
                     continue;                                               \
                 }                                                           \
-                upipe_dbg(s->OUTPUT, "rejected flow def");                  \
-                upipe_throw_error(s->OUTPUT, err);                          \
-                struct upipe *output = upipe_use(s->OUTPUT);                \
-                upipe_throw_need_output(upipe, s->FLOW_DEF);                \
-                if (output == s->OUTPUT || already_retried)                 \
-                    s->OUTPUT_STATE = UPIPE_HELPER_OUTPUT_INVALID;          \
+                upipe_dbg(s->HELPER.output, "rejected flow def");           \
+                upipe_throw_error(s->HELPER.output, err);                   \
+                struct upipe *output = upipe_use(s->HELPER.output);         \
+                upipe_throw_need_output(upipe, s->HELPER.flow_def);         \
+                if (output == s->HELPER.output || already_retried)          \
+                    s->HELPER.state = UPIPE_HELPER_OUTPUT_INVALID;          \
                 else                                                        \
                     already_retried = true;                                 \
                 upipe_release(output);                                      \
@@ -249,7 +277,7 @@ static UBASE_UNUSED void STRUCTURE##_output(struct upipe *upipe,            \
                                                                             \
             case UPIPE_HELPER_OUTPUT_VALID:                                 \
                 if (uref != NULL)                                           \
-                    upipe_input(s->OUTPUT, uref, upump_p);                  \
+                    upipe_input(s->HELPER.output, uref, upump_p);           \
                 return;                                                     \
                                                                             \
             case UPIPE_HELPER_OUTPUT_INVALID:                               \
@@ -271,10 +299,10 @@ static int STRUCTURE##_register_output_request(struct upipe *upipe,         \
                                                struct urequest *urequest)   \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
-    ulist_add(&s->REQUEST_LIST, urequest_to_uchain(urequest));              \
+    ulist_add(&s->HELPER.urequests, urequest_to_uchain(urequest));       \
     int err;                                                                \
-    if (likely(s->OUTPUT != NULL &&                                         \
-               (err = upipe_register_request(s->OUTPUT, urequest))          \
+    if (likely(s->HELPER.output != NULL &&                                  \
+               (err = upipe_register_request(s->HELPER.output, urequest))   \
                  != UBASE_ERR_UNHANDLED))                                   \
         return err;                                                         \
     return upipe_throw_provide_request(upipe, urequest);                    \
@@ -291,8 +319,8 @@ static int STRUCTURE##_unregister_output_request(struct upipe *upipe,       \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
     ulist_delete(urequest_to_uchain(urequest));                             \
     int err;                                                                \
-    if (likely(s->OUTPUT != NULL && urequest->registered &&                 \
-               (err = upipe_unregister_request(s->OUTPUT, urequest))        \
+    if (likely(s->HELPER.output != NULL && urequest->registered &&          \
+               (err = upipe_unregister_request(s->HELPER.output, urequest)) \
                  != UBASE_ERR_UNHANDLED))                                   \
         return err;                                                         \
     return UBASE_ERR_NONE;                                                  \
@@ -346,7 +374,7 @@ static int UBASE_UNUSED STRUCTURE##_free_output_proxy(struct upipe *upipe,  \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
     struct uchain *uchain, *uchain_tmp;                                     \
-    ulist_delete_foreach (&s->REQUEST_LIST, uchain, uchain_tmp) {           \
+    ulist_delete_foreach (&s->HELPER.urequests, uchain, uchain_tmp) {    \
         struct urequest *proxy = urequest_from_uchain(uchain);              \
         if (urequest_get_opaque(proxy, struct urequest *) == urequest) {    \
             STRUCTURE##_unregister_output_request(upipe, proxy);            \
@@ -367,17 +395,17 @@ static void STRUCTURE##_store_flow_def(struct upipe *upipe,                 \
                                        struct uref *flow_def)               \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
-    if (s->FLOW_DEF != NULL && s->FLOW_DEF->udict != NULL &&                \
+    if (s->HELPER.flow_def != NULL && s->HELPER.flow_def->udict != NULL &&  \
         flow_def != NULL && flow_def->udict != NULL &&                      \
-        !udict_cmp(s->FLOW_DEF->udict, flow_def->udict)) {                  \
-        uref_free(s->FLOW_DEF);                                             \
-        s->FLOW_DEF = flow_def; /* doesn't change the state */              \
+        !udict_cmp(s->HELPER.flow_def->udict, flow_def->udict)) {           \
+        uref_free(s->HELPER.flow_def);                                      \
+        s->HELPER.flow_def = flow_def; /* doesn't change the state */       \
         return;                                                             \
     }                                                                       \
-    if (unlikely(s->FLOW_DEF != NULL))                                      \
-        uref_free(s->FLOW_DEF);                                             \
-    s->OUTPUT_STATE = UPIPE_HELPER_OUTPUT_NONE;                             \
-    s->FLOW_DEF = flow_def;                                                 \
+    if (unlikely(s->HELPER.flow_def != NULL))                               \
+        uref_free(s->HELPER.flow_def);                                      \
+    s->HELPER.state = UPIPE_HELPER_OUTPUT_NONE;                             \
+    s->HELPER.flow_def = flow_def;                                          \
     if (flow_def != NULL)                                                   \
         upipe_throw_new_flow_def(upipe, flow_def);                          \
 }                                                                           \
@@ -391,8 +419,18 @@ static int STRUCTURE##_get_flow_def(struct upipe *upipe, struct uref **p)   \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
     assert(p != NULL);                                                      \
-    *p = s->FLOW_DEF;                                                       \
+    *p = s->HELPER.flow_def;                                                \
     return UBASE_ERR_NONE;                                                  \
+}                                                                           \
+/** @internal @This checks is an output flow def is set.                    \
+ *                                                                          \
+ * @param upipe description structure of the pipe                           \
+ * @return true is an output flow def is set                                \
+ */                                                                         \
+static int STRUCTURE##_check_flow_def(struct upipe *upipe)                  \
+{                                                                           \
+    struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
+    return s->HELPER.flow_def != NULL;                                      \
 }                                                                           \
 /** @internal @This handles the get_output control command.                 \
  *                                                                          \
@@ -404,7 +442,7 @@ static int STRUCTURE##_get_output(struct upipe *upipe, struct upipe **p)    \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
     assert(p != NULL);                                                      \
-    *p = s->OUTPUT;                                                         \
+    *p = s->HELPER.output;                                                  \
     return UBASE_ERR_NONE;                                                  \
 }                                                                           \
 /** @internal @This handles the set_output control command.                 \
@@ -416,25 +454,25 @@ static int STRUCTURE##_get_output(struct upipe *upipe, struct upipe **p)    \
 static int STRUCTURE##_set_output(struct upipe *upipe, struct upipe *output)\
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
-    if (likely(s->OUTPUT != NULL)) {                                        \
+    if (likely(s->HELPER.output != NULL)) {                                 \
         struct uchain *uchain;                                              \
-        ulist_foreach (&s->REQUEST_LIST, uchain) {                          \
+        ulist_foreach (&s->HELPER.urequests, uchain) {                   \
             struct urequest *urequest = urequest_from_uchain(uchain);       \
-            upipe_unregister_request(s->OUTPUT, urequest);                  \
+            upipe_unregister_request(s->HELPER.output, urequest);           \
         }                                                                   \
     }                                                                       \
-    upipe_release(s->OUTPUT);                                               \
+    upipe_release(s->HELPER.output);                                        \
                                                                             \
-    s->OUTPUT = upipe_use(output);                                          \
-    s->OUTPUT_STATE = UPIPE_HELPER_OUTPUT_NONE;                             \
-    if (unlikely(s->OUTPUT == NULL))                                        \
+    s->HELPER.output = upipe_use(output);                                   \
+    s->HELPER.state = UPIPE_HELPER_OUTPUT_NONE;                             \
+    if (unlikely(s->HELPER.output == NULL))                                 \
         return UBASE_ERR_NONE;                                              \
                                                                             \
     /* Retry in a loop because the request list may change at any point. */ \
     for ( ; ; ) {                                                           \
         struct urequest *urequest = NULL;                                   \
         struct uchain *uchain;                                              \
-        ulist_foreach (&s->REQUEST_LIST, uchain) {                          \
+        ulist_foreach (&s->HELPER.urequests, uchain) {                   \
             struct urequest *urequest_chain = urequest_from_uchain(uchain); \
             if (!urequest_chain->registered) {                              \
                 urequest = urequest_chain;                                  \
@@ -442,7 +480,7 @@ static int STRUCTURE##_set_output(struct upipe *upipe, struct upipe *output)\
             }                                                               \
         }                                                                   \
         if (urequest != NULL) {                                             \
-            upipe_register_request(s->OUTPUT, urequest);                    \
+            upipe_register_request(s->HELPER.output, urequest);             \
             continue;                                                       \
         }                                                                   \
         break;                                                              \
@@ -502,18 +540,7 @@ static inline int STRUCTURE##_control_output(struct upipe *upipe,           \
 static void STRUCTURE##_clean_output(struct upipe *upipe)                   \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
-    struct uchain *uchain;                                                  \
-    while ((uchain = ulist_pop(&s->REQUEST_LIST)) != NULL) {                \
-        struct urequest *urequest = urequest_from_uchain(uchain);           \
-        if (likely(s->OUTPUT != NULL))                                      \
-            upipe_unregister_request(s->OUTPUT, urequest);                  \
-        urequest_clean(urequest);                                           \
-        urequest_free(urequest);                                            \
-    }                                                                       \
-    upipe_release(s->OUTPUT);                                               \
-    s->OUTPUT = NULL;                                                       \
-    uref_free(s->FLOW_DEF);                                                 \
-    s->FLOW_DEF = NULL;                                                     \
+    upipe_helper_output_clean(&s->HELPER);                                  \
 }
 
 #ifdef __cplusplus

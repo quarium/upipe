@@ -49,16 +49,10 @@ struct upipe_setflowdef {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** dictionary to set */
     struct uref *dict;
@@ -70,7 +64,7 @@ struct upipe_setflowdef {
 UPIPE_HELPER_UPIPE(upipe_setflowdef, upipe, UPIPE_SETFLOWDEF_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_setflowdef, urefcount, upipe_setflowdef_free)
 UPIPE_HELPER_VOID(upipe_setflowdef)
-UPIPE_HELPER_OUTPUT(upipe_setflowdef, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_setflowdef, helper_output)
 
 /** @internal @This allocates a setflowdef pipe.
  *

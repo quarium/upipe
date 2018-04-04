@@ -107,14 +107,8 @@ struct upipe_avfsrc {
     /** refcount management structure exported to the public structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** uref manager */
     struct uref_mgr *uref_mgr;
@@ -162,7 +156,7 @@ struct upipe_avfsrc {
 UPIPE_HELPER_UPIPE(upipe_avfsrc, upipe, UPIPE_AVFSRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_avfsrc, urefcount, upipe_avfsrc_no_input)
 UPIPE_HELPER_VOID(upipe_avfsrc)
-UPIPE_HELPER_OUTPUT(upipe_avfsrc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_avfsrc, helper_output)
 
 UPIPE_HELPER_UREF_MGR(upipe_avfsrc, uref_mgr, uref_mgr_request, NULL,
                       upipe_throw_provide_request, NULL)

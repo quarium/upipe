@@ -70,14 +70,8 @@ struct upipe_buffer {
     struct upump_mgr *upump_mgr;
     /** upump pointer for helper */
     struct upump *upump;
-    /** upipe pointer for output helper */
-    struct upipe *output;
-    /** uref pointer for output helper to store flow def */
-    struct uref *flow_def;
-    /** output_state for output helper */
-    enum upipe_helper_output_state output_state;
-    /** uchain structure for output helper to store request list */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** list of urefs for input helper */
     struct uchain urefs;
     /** number of urefs for input helper */
@@ -114,7 +108,7 @@ UPIPE_HELPER_UPUMP_MGR(upipe_buffer, upump_mgr);
 UPIPE_HELPER_UPUMP(upipe_buffer, upump, upump_mgr);
 UPIPE_HELPER_INPUT(upipe_buffer, urefs, nb_urefs, max_urefs, blockers,
                    upipe_buffer_process);
-UPIPE_HELPER_OUTPUT(upipe_buffer, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_buffer, helper_output);
 
 /** @internal @This allocates a buffer pipe.
  *

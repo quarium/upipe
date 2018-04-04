@@ -65,14 +65,8 @@ struct upipe_s337d {
     struct urefcount urefcount;
 
     /* output stuff */
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
     /** attributes in the sequence header */
@@ -113,7 +107,7 @@ UPIPE_HELPER_VOID(upipe_s337d)
 UPIPE_HELPER_SYNC(upipe_s337d, acquired)
 UPIPE_HELPER_UREF_STREAM(upipe_s337d, next_uref, next_uref_size, urefs, NULL)
 
-UPIPE_HELPER_OUTPUT(upipe_s337d, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_s337d, helper_output)
 UPIPE_HELPER_FLOW_DEF(upipe_s337d, flow_def_input, flow_def_attr)
 
 /** @internal @This allocates an s337d pipe.

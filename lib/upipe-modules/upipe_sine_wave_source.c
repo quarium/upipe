@@ -91,14 +91,8 @@ struct upipe_sinesrc {
     /** uclock request */
     struct urequest uclock_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -118,7 +112,7 @@ UPIPE_HELPER_UPIPE(upipe_sinesrc, upipe, UPIPE_SINESRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_sinesrc, urefcount, upipe_sinesrc_free)
 UPIPE_HELPER_VOID(upipe_sinesrc)
 
-UPIPE_HELPER_OUTPUT(upipe_sinesrc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_sinesrc, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_sinesrc, uref_mgr, uref_mgr_request,
                       upipe_sinesrc_check,
                       upipe_sinesrc_register_output_request,
@@ -249,7 +243,9 @@ static int upipe_sinesrc_check(struct upipe *upipe, struct uref *flow_format)
         return UBASE_ERR_NONE;
     }
 
-    if (upipe_sinesrc->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_sinesrc_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     if (upipe_sinesrc->uclock == NULL &&

@@ -50,14 +50,8 @@ struct upipe_setrap {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** rap to set */
     uint64_t rap_sys;
@@ -69,7 +63,7 @@ struct upipe_setrap {
 UPIPE_HELPER_UPIPE(upipe_setrap, upipe, UPIPE_SETRAP_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_setrap, urefcount, upipe_setrap_free)
 UPIPE_HELPER_VOID(upipe_setrap)
-UPIPE_HELPER_OUTPUT(upipe_setrap, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_setrap, helper_output)
 
 /** @internal @This allocates a setrap pipe.
  *

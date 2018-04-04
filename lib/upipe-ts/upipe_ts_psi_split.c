@@ -83,14 +83,8 @@ struct upipe_ts_psi_split_sub {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet on this output */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -101,7 +95,7 @@ UPIPE_HELPER_UPIPE(upipe_ts_psi_split_sub, upipe,
 UPIPE_HELPER_UREFCOUNT(upipe_ts_psi_split_sub, urefcount,
                        upipe_ts_psi_split_sub_free)
 UPIPE_HELPER_FLOW(upipe_ts_psi_split_sub, NULL)
-UPIPE_HELPER_OUTPUT(upipe_ts_psi_split_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_psi_split_sub, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_ts_psi_split, upipe_ts_psi_split_sub, sub,
                      sub_mgr, subs, uchain)
@@ -232,9 +226,12 @@ static void upipe_ts_psi_split_input(struct upipe *upipe, struct uref *uref,
     ulist_foreach (&upipe_ts_psi_split->subs, uchain) {
         struct upipe_ts_psi_split_sub *output =
                 upipe_ts_psi_split_sub_from_uchain(uchain);
+        struct uref *flow_def = NULL;
         const uint8_t *filter, *mask;
         size_t size;
-        if (ubase_check(uref_ts_flow_get_psi_filter(output->flow_def, &filter,
+        upipe_ts_psi_split_sub_get_flow_def(
+            upipe_ts_psi_split_sub_to_upipe(output), &flow_def);
+        if (ubase_check(uref_ts_flow_get_psi_filter(flow_def, &filter,
                         &mask, &size)) &&
             ubase_check(uref_block_match(uref, filter, mask, size))) {
             if (likely(uchain->next == NULL)) {

@@ -47,18 +47,12 @@ struct upipe_vblk {
     struct upipe upipe;
     /** refcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow format */
-    struct uref *flow_def;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition */
     struct uref *input_flow_def;
     /** flow attributes */
     struct uref *flow_attr;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** output request list */
-    struct uchain requests;
     /** ubuf manager */
     struct ubuf_mgr *ubuf_mgr;
     /** blank picture */
@@ -75,7 +69,7 @@ static int upipe_vblk_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_vblk, upipe, UPIPE_VBLK_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_vblk, urefcount, upipe_vblk_free);
 UPIPE_HELPER_FLOW(upipe_vblk, UREF_PIC_FLOW_DEF);
-UPIPE_HELPER_OUTPUT(upipe_vblk, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_vblk, helper_output);
 UPIPE_HELPER_FLOW_DEF(upipe_vblk, input_flow_def, flow_attr);
 UPIPE_HELPER_UBUF_MGR(upipe_vblk, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_vblk_check,
@@ -109,8 +103,8 @@ static void upipe_vblk_free(struct upipe *upipe)
  * @param flow_def flow definition to check
  * @return an error code
  */
-static int upipe_vblk_check_flow_def(struct upipe *upipe,
-                                     struct uref *flow_def)
+static int upipe_vblk_check_flow_format(struct upipe *upipe,
+                                        struct uref *flow_def)
 {
     uint64_t hsize, vsize;
     UBASE_RETURN(uref_flow_match_def(flow_def, UREF_PIC_FLOW_DEF));
@@ -148,7 +142,7 @@ static struct upipe *upipe_vblk_alloc(struct upipe_mgr *mgr,
 
     upipe_throw_ready(upipe);
 
-    if (unlikely(!ubase_check(upipe_vblk_check_flow_def(upipe, flow_def)))) {
+    if (unlikely(!ubase_check(upipe_vblk_check_flow_format(upipe, flow_def)))) {
         uref_free(flow_def);
         upipe_release(upipe);
         return NULL;
@@ -170,8 +164,10 @@ static void upipe_vblk_input(struct upipe *upipe,
                              struct upump **upump_p)
 {
     struct upipe_vblk *upipe_vblk = upipe_vblk_from_upipe(upipe);
-    struct uref *flow_def = upipe_vblk->flow_def;
+    struct uref *flow_def = NULL;
     struct uref *input_flow_def = upipe_vblk->input_flow_def;
+
+    upipe_vblk_get_flow_def(upipe, &flow_def);
 
     if (uref->ubuf) {
         upipe_vblk_output(upipe, uref, upump_p);
@@ -200,8 +196,8 @@ static void upipe_vblk_input(struct upipe *upipe,
         upipe_verbose(upipe, "allocate blank picture");
 
         uint64_t hsize, vsize;
-        ubase_assert(uref_pic_flow_get_hsize(upipe_vblk->flow_def, &hsize));
-        ubase_assert(uref_pic_flow_get_vsize(upipe_vblk->flow_def, &vsize));
+        ubase_assert(uref_pic_flow_get_hsize(flow_def, &hsize));
+        ubase_assert(uref_pic_flow_get_vsize(flow_def, &vsize));
 
         upipe_vblk->ubuf = ubuf_pic_alloc(upipe_vblk->ubuf_mgr, hsize, vsize);
         if (unlikely(!upipe_vblk->ubuf)) {
@@ -240,7 +236,7 @@ static int upipe_vblk_set_flow_def(struct upipe *upipe,
     struct upipe_vblk *upipe_vblk = upipe_vblk_from_upipe(upipe);
 
     if (!ubase_check(uref_flow_match_def(flow_def, UREF_VOID_FLOW_DEF)) &&
-        !ubase_check(upipe_vblk_check_flow_def(upipe, flow_def)))
+        !ubase_check(upipe_vblk_check_flow_format(upipe, flow_def)))
         return UBASE_ERR_INVALID;
 
     struct uref *input_flow_def = uref_dup(flow_def);
@@ -330,11 +326,13 @@ static int upipe_vblk_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format)
         upipe_vblk_store_flow_def(upipe, flow_format);
 
-    if (!upipe_vblk->flow_def)
+    struct uref *flow_def = NULL;
+    upipe_vblk_get_flow_def(upipe, &flow_def);
+    if (!flow_def)
         return UBASE_ERR_NONE;
 
     if (!upipe_vblk->ubuf_mgr) {
-        upipe_vblk_require_ubuf_mgr(upipe, uref_dup(upipe_vblk->flow_def));
+        upipe_vblk_require_ubuf_mgr(upipe, uref_dup(flow_def));
         return UBASE_ERR_NONE;
     }
 

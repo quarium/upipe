@@ -84,11 +84,8 @@ struct upipe_stream_switcher {
     struct uchain sub_pipes;
     struct upipe_mgr sub_mgr;
 
-    /** for output helper */
-    struct upipe *output;
-    struct uref *flow_def;
-    enum upipe_helper_output_state output_state;
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** private */
     struct upipe *selected;
@@ -109,8 +106,7 @@ UPIPE_HELPER_UPIPE(upipe_stream_switcher, upipe,
 UPIPE_HELPER_UREFCOUNT(upipe_stream_switcher, urefcount,
                        upipe_stream_switcher_no_ref)
 UPIPE_HELPER_VOID(upipe_stream_switcher)
-UPIPE_HELPER_OUTPUT(upipe_stream_switcher, output, flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_stream_switcher, helper_output)
 
 UBASE_FROM_TO(upipe_stream_switcher, urefcount, urefcount_real, urefcount_real);
 
@@ -402,13 +398,16 @@ static bool upipe_stream_switcher_wait(struct upipe_stream_switcher *super,
     if (upipe_stream_switcher_input->sync)
         return false;
 
-    const char *flow_def;
-    if (!ubase_check(uref_flow_get_def(super->flow_def, &flow_def))) {
+    struct uref *flow_def = NULL;
+    upipe_stream_switcher_get_flow_def(upipe_stream_switcher_to_upipe(super),
+                                       &flow_def);
+    const char *def;
+    if (!ubase_check(uref_flow_get_def(flow_def, &def))) {
         upipe_err(upipe, "fail to get flow format");
         return upipe_stream_switcher_drop(upipe, uref);
     }
 
-    if (strstr(flow_def, ".pic.") && !ubase_check(uref_pic_get_key(uref)))
+    if (strstr(def, ".pic.") && !ubase_check(uref_pic_get_key(uref)))
         /* drop if not a key frames */
         return upipe_stream_switcher_drop(upipe, uref);
 
@@ -635,7 +634,9 @@ static int upipe_stream_switcher_set_flow_def(struct upipe *upipe,
     struct upipe_stream_switcher *upipe_stream_switcher =
         upipe_stream_switcher_from_upipe(upipe);
 
-    if (upipe_stream_switcher->flow_def == NULL) {
+    struct uref *current_flow_def = NULL;
+    upipe_stream_switcher_get_flow_def(upipe, &current_flow_def);
+    if (current_flow_def == NULL) {
         struct uref *flow_def_dup = uref_dup(flow_def);
         if (unlikely(flow_def_dup == NULL)) {
             upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
@@ -644,7 +645,7 @@ static int upipe_stream_switcher_set_flow_def(struct upipe *upipe,
 
         upipe_stream_switcher_store_flow_def(upipe, flow_def_dup);
     }
-    else if (uref_flow_cmp_def(upipe_stream_switcher->flow_def, flow_def))
+    else if (uref_flow_cmp_def(current_flow_def, flow_def))
         return UBASE_ERR_INVALID;
 
     return UBASE_ERR_NONE;

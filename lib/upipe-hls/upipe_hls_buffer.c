@@ -50,10 +50,8 @@ struct upipe_hls_buffer {
     struct urefcount urefcount;
     struct upump_mgr *upump_mgr;
     struct upump *upump;
-    enum upipe_helper_output_state output_state;
-    struct uchain requests;
-    struct upipe *output;
-    struct uref *flow_def;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     struct uchain urefs;
     unsigned nb_urefs;
     unsigned max_urefs;
@@ -70,7 +68,7 @@ static bool upipe_hls_buffer_process(struct upipe *upipe, struct uref *uref,
 UPIPE_HELPER_UPIPE(upipe_hls_buffer, upipe, UPIPE_HLS_BUFFER_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_hls_buffer, urefcount, upipe_hls_buffer_no_ref);
 UPIPE_HELPER_VOID(upipe_hls_buffer);
-UPIPE_HELPER_OUTPUT(upipe_hls_buffer, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_hls_buffer, helper_output);
 UPIPE_HELPER_INPUT(upipe_hls_buffer, urefs, nb_urefs, max_urefs, blockers,
                    upipe_hls_buffer_process);
 UPIPE_HELPER_UPUMP_MGR(upipe_hls_buffer, upump_mgr);

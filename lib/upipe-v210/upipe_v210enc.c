@@ -81,14 +81,8 @@ struct upipe_v210enc {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** temporary uref storage (used during urequest) */
     struct uchain urefs;
@@ -125,7 +119,7 @@ static int upipe_v210enc_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_v210enc, upipe, UPIPE_V210ENC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_v210enc, urefcount, upipe_v210enc_free);
 UPIPE_HELPER_VOID(upipe_v210enc);
-UPIPE_HELPER_OUTPUT(upipe_v210enc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_v210enc, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_v210enc, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_v210enc_check,
                       upipe_v210enc_register_output_request,
@@ -192,7 +186,9 @@ static bool upipe_v210enc_handle(struct upipe *upipe, struct uref *uref,
         upipe_v210enc->input_chroma_map[3] = NULL;
     }
 
-    if (upipe_v210enc->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_v210enc_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     size_t input_hsize, input_vsize;
@@ -392,7 +388,9 @@ static int upipe_v210enc_check(struct upipe *upipe, struct uref *flow_format)
     if (flow_format != NULL)
         upipe_v210enc_store_flow_def(upipe, flow_format);
 
-    if (upipe_v210enc->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_v210enc_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_v210enc_check_input(upipe);

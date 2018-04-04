@@ -114,16 +114,10 @@ struct upipe_ts_scte104d_sub {
     /** DPI PID index to match */
     uint64_t dpi_pid_index;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet on this output */
-    struct uref *flow_def;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** attributes / parameters from application */
     struct uref *flow_def_params;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -134,7 +128,7 @@ UPIPE_HELPER_UPIPE(upipe_ts_scte104d_sub, upipe,
 UPIPE_HELPER_UREFCOUNT(upipe_ts_scte104d_sub, urefcount,
                        upipe_ts_scte104d_sub_free)
 UPIPE_HELPER_FLOW(upipe_ts_scte104d_sub, NULL)
-UPIPE_HELPER_OUTPUT(upipe_ts_scte104d_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_scte104d_sub, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_ts_scte104d, upipe_ts_scte104d_sub, sub,
                      sub_mgr, subs, uchain)

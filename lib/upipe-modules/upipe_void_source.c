@@ -51,14 +51,8 @@ struct upipe_voidsrc {
     struct upipe upipe;
     /** refcount structure */
     struct urefcount urefcount;
-    /** output pipe */
-    struct upipe *output;
-    /** output flow format */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain requests;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** uref manager */
     struct uref_mgr *uref_mgr;
     /** uref manager request */
@@ -85,7 +79,7 @@ static int upipe_voidsrc_check(struct upipe *upipe, struct uref *flow);
 UPIPE_HELPER_UPIPE(upipe_voidsrc, upipe, UPIPE_VOIDSRC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_voidsrc, urefcount, upipe_voidsrc_free);
 UPIPE_HELPER_FLOW(upipe_voidsrc, EXPECTED_FLOW_DEF);
-UPIPE_HELPER_OUTPUT(upipe_voidsrc, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_voidsrc, helper_output);
 UPIPE_HELPER_UREF_MGR(upipe_voidsrc, uref_mgr, uref_mgr_request,
                       upipe_voidsrc_check,
                       upipe_voidsrc_register_output_request,

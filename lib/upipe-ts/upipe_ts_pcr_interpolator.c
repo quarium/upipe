@@ -53,14 +53,8 @@ struct upipe_ts_pcr_interpolator {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** previous PCR value */
     uint64_t last_pcr;
@@ -84,7 +78,7 @@ struct upipe_ts_pcr_interpolator {
 UPIPE_HELPER_UPIPE(upipe_ts_pcr_interpolator, upipe, UPIPE_TS_PCR_INTERPOLATOR_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_pcr_interpolator, urefcount, upipe_ts_pcr_interpolator_free)
 UPIPE_HELPER_VOID(upipe_ts_pcr_interpolator)
-UPIPE_HELPER_OUTPUT(upipe_ts_pcr_interpolator, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_pcr_interpolator, helper_output)
 
 /** @internal @This allocates a ts_pcr_interpolator pipe.
  *

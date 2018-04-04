@@ -90,14 +90,8 @@ struct upipe_ts_psig {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *output_flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** PAT version */
     uint8_t pat_version;
@@ -129,8 +123,7 @@ struct upipe_ts_psig {
 UPIPE_HELPER_UPIPE(upipe_ts_psig, upipe, UPIPE_TS_PSIG_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_psig, urefcount, upipe_ts_psig_free)
 UPIPE_HELPER_VOID(upipe_ts_psig)
-UPIPE_HELPER_OUTPUT(upipe_ts_psig, output, output_flow_def, output_state,
-                    request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_psig, helper_output)
 UPIPE_HELPER_UREF_MGR(upipe_ts_psig, uref_mgr, uref_mgr_request, NULL,
                       upipe_ts_psig_register_output_request,
                       upipe_ts_psig_unregister_output_request)
@@ -156,14 +149,8 @@ struct upipe_ts_psig_program {
     /** true if the PMT update was frozen */
     bool frozen;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *output_flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** PCR PID */
     uint16_t pcr_pid;
@@ -197,8 +184,7 @@ UPIPE_HELPER_UPIPE(upipe_ts_psig_program, upipe,
 UPIPE_HELPER_UREFCOUNT(upipe_ts_psig_program, urefcount,
                        upipe_ts_psig_program_free)
 UPIPE_HELPER_VOID(upipe_ts_psig_program)
-UPIPE_HELPER_OUTPUT(upipe_ts_psig_program, output, output_flow_def,
-                    output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_psig_program, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_ts_psig, upipe_ts_psig_program, program, program_mgr,
                      programs, uchain)

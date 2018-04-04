@@ -84,6 +84,8 @@ struct upipe_rtpfb {
     /** ubuf mgr structures */
     struct ubuf_mgr *ubuf_mgr;
     struct urequest ubuf_mgr_request;
+    /** ubuf manager flow format */
+    struct uref *flow_format;
 
     struct upipe_mgr sub_mgr;
     /** list of output subpipes */
@@ -110,16 +112,10 @@ struct upipe_rtpfb {
     size_t loss;
     size_t dups;
 
-    /** output pipe */
-    struct upipe *output;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition packet */
     struct uref *flow_def_input;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
 
     /** buffer latency */
     uint64_t latency;
@@ -146,12 +142,12 @@ static int upipe_rtpfb_check(struct upipe *upipe, struct uref *flow_format);
 UPIPE_HELPER_UPIPE(upipe_rtpfb, upipe, UPIPE_RTPFB_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_rtpfb, urefcount, upipe_rtpfb_no_input);
 UPIPE_HELPER_VOID(upipe_rtpfb);
-UPIPE_HELPER_OUTPUT(upipe_rtpfb, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_rtpfb, helper_output);
 UPIPE_HELPER_UREF_MGR(upipe_rtpfb, uref_mgr, uref_mgr_request,
                       upipe_rtpfb_check,
                       upipe_rtpfb_register_output_request,
                       upipe_rtpfb_unregister_output_request)
-UPIPE_HELPER_UBUF_MGR(upipe_rtpfb, ubuf_mgr, flow_def, ubuf_mgr_request,
+UPIPE_HELPER_UBUF_MGR(upipe_rtpfb, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_rtpfb_check,
                       upipe_rtpfb_register_output_request,
                       upipe_rtpfb_unregister_output_request)
@@ -165,14 +161,8 @@ struct upipe_rtpfb_output {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -181,7 +171,7 @@ struct upipe_rtpfb_output {
 UPIPE_HELPER_UPIPE(upipe_rtpfb_output, upipe, UPIPE_RTPFB_OUTPUT_SIGNATURE)
 UPIPE_HELPER_VOID(upipe_rtpfb_output);
 UPIPE_HELPER_UREFCOUNT(upipe_rtpfb_output, urefcount, upipe_rtpfb_output_free)
-UPIPE_HELPER_OUTPUT(upipe_rtpfb_output, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_rtpfb_output, helper_output)
 UPIPE_HELPER_SUBPIPE(upipe_rtpfb, upipe_rtpfb_output, output, sub_mgr, outputs,
                      uchain)
 
@@ -220,8 +210,9 @@ static struct upipe *upipe_rtpfb_output_alloc(struct upipe_mgr *mgr,
         return NULL;
 
     struct uref *flow_def_dup = NULL;
-    if (upipe_rtpfb->flow_def != NULL &&
-        (flow_def_dup = uref_dup(upipe_rtpfb->flow_def)) == NULL)
+    struct uref *flow_def = NULL;
+    upipe_rtpfb_get_flow_def(upipe, &flow_def);
+    if (flow_def != NULL && (flow_def_dup = uref_dup(flow_def)) == NULL)
         return NULL;
 
     upipe_rtpfb_output_init_urefcount(upipe);
@@ -456,7 +447,9 @@ static int upipe_rtpfb_check(struct upipe *upipe, struct uref *flow_format)
         upipe_rtpfb_store_flow_def(upipe, flow_format);
     }
 
-    if (upipe_rtpfb->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_rtpfb_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     if (upipe_rtpfb->uref_mgr == NULL) {

@@ -51,6 +51,8 @@ struct upipe_dup {
     /** refcount management structure exported to the public structure */
     struct urefcount urefcount;
 
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** list of output subpipes */
     struct uchain outputs;
     /** flow definition packet */
@@ -73,7 +75,7 @@ UPIPE_HELPER_UPIPE(upipe_dup, upipe, UPIPE_DUP_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dup, urefcount, upipe_dup_no_input)
 UPIPE_HELPER_UREFCOUNT_REAL(upipe_dup, urefcount_real, upipe_dup_free)
 UPIPE_HELPER_VOID(upipe_dup)
-UPIPE_HELPER_OUTPUT(upipe_dup, output, flow_def, output_state, requests);
+UPIPE_HELPER_OUTPUT2(upipe_dup, helper_output);
 
 /** @internal @This is the private context of an output of a dup pipe. */
 struct upipe_dup_output {
@@ -82,14 +84,8 @@ struct upipe_dup_output {
     /** structure for double-linked lists */
     struct uchain uchain;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -98,7 +94,7 @@ struct upipe_dup_output {
 UPIPE_HELPER_UPIPE(upipe_dup_output, upipe, UPIPE_DUP_OUTPUT_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_dup_output, urefcount, upipe_dup_output_free)
 UPIPE_HELPER_VOID(upipe_dup_output);
-UPIPE_HELPER_OUTPUT(upipe_dup_output, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_dup_output, helper_output)
 
 UPIPE_HELPER_SUBPIPE(upipe_dup, upipe_dup_output, output, sub_mgr, outputs,
                      uchain)

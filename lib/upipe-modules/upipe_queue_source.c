@@ -71,14 +71,8 @@ struct upipe_qsrc {
     /** oob watcher */
     struct upump *upump_oob;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** structure exported to the sinks */
     struct upipe_queue upipe_queue;
@@ -90,7 +84,7 @@ struct upipe_qsrc {
 UPIPE_HELPER_UPIPE(upipe_qsrc, upipe_queue.upipe, UPIPE_QSRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_qsrc, urefcount, upipe_qsrc_no_ref)
 
-UPIPE_HELPER_OUTPUT(upipe_qsrc, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_qsrc, helper_output)
 
 UPIPE_HELPER_UPUMP_MGR(upipe_qsrc, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_qsrc, upump, upump_mgr)

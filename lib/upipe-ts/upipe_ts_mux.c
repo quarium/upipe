@@ -253,14 +253,8 @@ struct upipe_ts_mux {
     /** list of input bin requests */
     struct uchain input_request_list;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain output_request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** pointer to ts_psig */
     struct upipe *psig;
@@ -381,8 +375,7 @@ UPIPE_HELPER_UREFCOUNT(upipe_ts_mux, urefcount, upipe_ts_mux_no_input)
 UPIPE_HELPER_VOID(upipe_ts_mux)
 UPIPE_HELPER_INNER(upipe_ts_mux, psig)
 UPIPE_HELPER_BIN_INPUT(upipe_ts_mux, psig, input_request_list)
-UPIPE_HELPER_OUTPUT(upipe_ts_mux, output, flow_def, output_state,
-                    output_request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_mux, helper_output)
 UPIPE_HELPER_UPUMP_MGR(upipe_ts_mux, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_ts_mux, upump, upump_mgr)
 UPIPE_HELPER_UREF_MGR(upipe_ts_mux, uref_mgr, uref_mgr_request,
@@ -3000,8 +2993,9 @@ static void upipe_ts_mux_work_live(struct upipe *upipe, struct upump **upump_p)
 static void upipe_ts_mux_work(struct upipe *upipe, struct upump **upump_p)
 {
     struct upipe_ts_mux *mux = upipe_ts_mux_from_upipe(upipe);
-    if (unlikely(mux->flow_def == NULL || mux->padding == NULL ||
-                 !mux->interval))
+    struct uref *flow_def = NULL;
+    upipe_ts_mux_get_flow_def(upipe, &flow_def);
+    if (unlikely(flow_def == NULL || mux->padding == NULL || !mux->interval))
         return;
 
     if (!mux->live)
@@ -3052,7 +3046,9 @@ static int upipe_ts_mux_check(struct upipe *upipe, struct uref *flow_format)
         upipe_ts_mux_update(upipe);
     }
 
-    if (mux->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_ts_mux_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         upipe_ts_mux_build_flow_def(upipe);
 
     if (mux->ubuf_mgr == NULL) {

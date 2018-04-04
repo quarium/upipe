@@ -77,14 +77,8 @@ struct upipe_ts_eitd {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
     /** input flow definition */
     struct uref *flow_def_input;
     /** attributes in the sequence header */
@@ -107,7 +101,7 @@ struct upipe_ts_eitd {
 UPIPE_HELPER_UPIPE(upipe_ts_eitd, upipe, UPIPE_TS_EITD_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_ts_eitd, urefcount, upipe_ts_eitd_free)
 UPIPE_HELPER_VOID(upipe_ts_eitd)
-UPIPE_HELPER_OUTPUT(upipe_ts_eitd, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_ts_eitd, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_ts_eitd, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_ts_eitd_check,
                       upipe_ts_eitd_register_output_request,

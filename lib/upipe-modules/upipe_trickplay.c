@@ -118,14 +118,8 @@ struct upipe_trickp_sub {
     /** list of blockers */
     struct uchain blockers;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** flow definition packet on this output */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -134,7 +128,7 @@ struct upipe_trickp_sub {
 UPIPE_HELPER_UPIPE(upipe_trickp_sub, upipe, UPIPE_TRICKP_SUB_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_trickp_sub, urefcount, upipe_trickp_sub_free)
 UPIPE_HELPER_VOID(upipe_trickp_sub)
-UPIPE_HELPER_OUTPUT(upipe_trickp_sub, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_trickp_sub, helper_output)
 UPIPE_HELPER_INPUT(upipe_trickp_sub, urefs, nb_urefs, max_urefs, blockers, upipe_trickp_sub_process)
 
 UPIPE_HELPER_SUBPIPE(upipe_trickp, upipe_trickp_sub, sub, sub_mgr, subs, uchain)

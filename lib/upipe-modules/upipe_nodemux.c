@@ -57,14 +57,8 @@ struct upipe_nodemux {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** pipe acting as output */
-    struct upipe *output;
-    /** output flow definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** set to true after the first packet has been sent */
     bool inited;
@@ -76,7 +70,7 @@ struct upipe_nodemux {
 UPIPE_HELPER_UPIPE(upipe_nodemux, upipe, UPIPE_NODEMUX_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_nodemux, urefcount, upipe_nodemux_free)
 UPIPE_HELPER_VOID(upipe_nodemux)
-UPIPE_HELPER_OUTPUT(upipe_nodemux, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_nodemux, helper_output)
 
 /** @internal @This allocates a nodemux pipe.
  *

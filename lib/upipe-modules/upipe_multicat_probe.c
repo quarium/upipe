@@ -57,14 +57,8 @@ struct upipe_multicat_probe {
     /** refcount management structure */
     struct urefcount urefcount;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** rotate interval */
     uint64_t rotate;
@@ -81,7 +75,7 @@ UPIPE_HELPER_UPIPE(upipe_multicat_probe, upipe, UPIPE_MULTICAT_PROBE_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_multicat_probe, urefcount,
                        upipe_multicat_probe_free)
 UPIPE_HELPER_VOID(upipe_multicat_probe)
-UPIPE_HELPER_OUTPUT(upipe_multicat_probe, output, flow_def, output_state, request_list);
+UPIPE_HELPER_OUTPUT2(upipe_multicat_probe, helper_output);
 
 /** @internal @This handles data.
  *
@@ -226,7 +220,6 @@ static struct upipe *upipe_multicat_probe_alloc(struct upipe_mgr *mgr,
     upipe_multicat_probe->rotate = UPIPE_MULTICAT_PROBE_DEF_ROTATE;
     upipe_multicat_probe->rotate_offset = UPIPE_MULTICAT_PROBE_DEF_ROTATE_OFFSET;
     upipe_multicat_probe->idx = 0;
-    upipe_multicat_probe->flow_def = NULL;
     upipe_throw_ready(upipe);
     return upipe;
 }

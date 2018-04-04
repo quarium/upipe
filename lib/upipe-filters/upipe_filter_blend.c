@@ -70,14 +70,8 @@ struct upipe_filter_blend {
     /** ubuf manager request */
     struct urequest ubuf_mgr_request;
 
-    /** output pipe */
-    struct upipe *output;
-    /** flow_definition packet */
-    struct uref *flow_def;
-    /** output state */
-    enum upipe_helper_output_state output_state;
-    /** list of output requests */
-    struct uchain request_list;
+    /** helper output */
+    struct upipe_helper_output helper_output;
 
     /** temporary uref storage (used during urequest) */
     struct uchain urefs;
@@ -95,7 +89,7 @@ struct upipe_filter_blend {
 UPIPE_HELPER_UPIPE(upipe_filter_blend, upipe, UPIPE_FILTER_BLEND_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_filter_blend, urefcount, upipe_filter_blend_free)
 UPIPE_HELPER_VOID(upipe_filter_blend)
-UPIPE_HELPER_OUTPUT(upipe_filter_blend, output, flow_def, output_state, request_list)
+UPIPE_HELPER_OUTPUT2(upipe_filter_blend, helper_output)
 UPIPE_HELPER_UBUF_MGR(upipe_filter_blend, ubuf_mgr, flow_format,
                       ubuf_mgr_request, upipe_filter_blend_check,
                       upipe_filter_blend_register_output_request,
@@ -220,7 +214,9 @@ static bool upipe_filter_blend_handle(struct upipe *upipe, struct uref *uref,
         return true;
     }
 
-    if (upipe_filter_blend->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_filter_blend_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return false;
 
     const uint8_t *in;
@@ -316,7 +312,9 @@ static int upipe_filter_blend_check(struct upipe *upipe,
     if (flow_format != NULL)
         upipe_filter_blend_store_flow_def(upipe, flow_format);
 
-    if (upipe_filter_blend->flow_def == NULL)
+    struct uref *flow_def = NULL;
+    upipe_filter_blend_get_flow_def(upipe, &flow_def);
+    if (flow_def == NULL)
         return UBASE_ERR_NONE;
 
     bool was_buffered = !upipe_filter_blend_check_input(upipe);
