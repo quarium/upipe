@@ -36,11 +36,12 @@ extern "C" {
 #endif
 
 #include <upipe/ubase.h>
-#include <upipe/uatomic.h>
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>
+
+#include <pthread.h>
 
 /** @This defines the position of an element in the uring array. */
 typedef uint16_t uring_index;
@@ -64,6 +65,8 @@ struct uring {
     uint16_t length;
     /** array of elements */
     struct uring_elem *elems;
+    /** mutex for thread safety */
+    pthread_mutex_t mutex;
 };
 
 /** @This returns the required size of extra data space for uring.
@@ -126,7 +129,7 @@ typedef uint32_t uring_lifo_val;
 /** @This defines an atomic structure describing a LIFO, based on @ref
  * uring_lifo_val.
  */
-typedef uatomic_uint32_t uring_lifo;
+typedef uint32_t uring_lifo;
 
 /** @This represents a NULL LIFO descriptor. */
 #define URING_LIFO_NULL 0
@@ -176,7 +179,8 @@ static inline uring_lifo_val uring_lifo_from_index(struct uring *uring,
 static inline void uring_lifo_init(struct uring *uring, uring_lifo *lifo_p,
                                    uring_lifo_val lifo)
 {
-    uatomic_init(lifo_p, lifo);
+    *lifo_p = lifo;
+    pthread_mutex_init(&uring->mutex, NULL);
 }
 
 /** @This cleans up a LIFO.
@@ -186,7 +190,7 @@ static inline void uring_lifo_init(struct uring *uring, uring_lifo *lifo_p,
  */
 static inline void uring_lifo_clean(struct uring *uring, uring_lifo *lifo_p)
 {
-    uatomic_clean(lifo_p);
+    pthread_mutex_destroy(&uring->mutex);
 }
 
 /** @This pops an element from a LIFO.
@@ -198,18 +202,21 @@ static inline void uring_lifo_clean(struct uring *uring, uring_lifo *lifo_p)
 static inline uring_index uring_lifo_pop(struct uring *uring,
                                          uring_lifo *lifo_p)
 {
-    uring_lifo_val old_lifo = uatomic_load(lifo_p);
+    pthread_mutex_lock(&uring->mutex);
+    uring_lifo_val old_lifo = *lifo_p;
     uring_lifo_val new_lifo;
     uring_index index;
 
-    do {
-        if (old_lifo == URING_LIFO_NULL)
-            return URING_INDEX_NULL;
+    if (old_lifo == URING_LIFO_NULL) {
+        pthread_mutex_unlock(&uring->mutex);
+        return URING_INDEX_NULL;
+    }
 
-        index = uring_lifo_to_index(uring, old_lifo);
-        struct uring_elem *elem = uring_elem_from_index(uring, index);
-        new_lifo = uring_lifo_from_index(uring, elem->next);
-    } while (unlikely(!uatomic_compare_exchange(lifo_p, &old_lifo, new_lifo)));
+    index = uring_lifo_to_index(uring, old_lifo);
+    struct uring_elem *elem = uring_elem_from_index(uring, index);
+    new_lifo = uring_lifo_from_index(uring, elem->next);
+    *lifo_p = new_lifo;
+    pthread_mutex_unlock(&uring->mutex);
 
     return index;
 }
@@ -223,13 +230,14 @@ static inline uring_index uring_lifo_pop(struct uring *uring,
 static inline void uring_lifo_push(struct uring *uring, uring_lifo *lifo_p,
                                    uring_index index)
 {
+    pthread_mutex_lock(&uring->mutex);
     struct uring_elem *elem = uring_elem_from_index(uring, index);
     uring_lifo_val new_lifo = uring_lifo_from_index(uring, index);
-    uring_lifo_val old_lifo = uatomic_load(lifo_p);
+    uring_lifo_val old_lifo = *lifo_p;
 
-    do {
-        elem->next = uring_lifo_to_index(uring, old_lifo);
-    } while (unlikely(!uatomic_compare_exchange(lifo_p, &old_lifo, new_lifo)));
+    elem->next = uring_lifo_to_index(uring, old_lifo);
+    *lifo_p = new_lifo;
+    pthread_mutex_unlock(&uring->mutex);
 }
 
 /** @This defines a multiplexed structure from two element indexes
