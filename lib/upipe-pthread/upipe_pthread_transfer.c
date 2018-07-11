@@ -28,6 +28,8 @@
  * This is particularly helpful for multithreaded applications.
  */
 
+#define _GNU_SOURCE
+
 #include <upipe/ubase.h>
 #include <upipe/urefcount.h>
 #include <upipe/ueventfd.h>
@@ -169,11 +171,12 @@ static void upipe_pthread_stop(struct upump *upump)
  * @param attr pthread attributes
  * @return pointer to xfer manager
  */
-struct upipe_mgr *upipe_pthread_xfer_mgr_alloc(uint8_t queue_length,
+struct upipe_mgr *upipe_pthread_xfer_mgr_alloc_named(uint8_t queue_length,
         uint16_t msg_pool_depth, struct uprobe *uprobe_pthread_upump_mgr,
         upump_mgr_alloc upump_mgr_alloc, uint16_t upump_pool_depth,
         uint16_t upump_blocker_pool_depth, struct umutex *mutex,
-        pthread_t *pthread_id_p, const pthread_attr_t *restrict attr)
+        pthread_t *pthread_id_p, const pthread_attr_t *restrict attr,
+        const char *name)
 {
     struct upipe_pthread_ctx *pthread_ctx =
         malloc(sizeof(struct upipe_pthread_ctx));
@@ -211,6 +214,8 @@ struct upipe_mgr *upipe_pthread_xfer_mgr_alloc(uint8_t queue_length,
     if (unlikely(pthread_create(&pthread_ctx->pthread_id, attr,
                                 upipe_pthread_start, pthread_ctx) != 0))
         goto upipe_pthread_xfer_mgr_alloc_err5;
+    if (name != NULL)
+        pthread_setname_np(pthread_ctx->pthread_id, name);
     if (pthread_id_p != NULL)
         *pthread_id_p = pthread_ctx->pthread_id;
 
@@ -230,4 +235,22 @@ upipe_pthread_xfer_mgr_alloc_err2:
 upipe_pthread_xfer_mgr_alloc_err1:
     uprobe_release(uprobe_pthread_upump_mgr);
     return NULL;
+}
+
+struct upipe_mgr *upipe_pthread_xfer_mgr_alloc(uint8_t queue_length,
+        uint16_t msg_pool_depth, struct uprobe *uprobe_pthread_upump_mgr,
+        upump_mgr_alloc upump_mgr_alloc, uint16_t upump_pool_depth,
+        uint16_t upump_blocker_pool_depth, struct umutex *mutex,
+        pthread_t *pthread_id_p, const pthread_attr_t *restrict attr)
+{
+    return upipe_pthread_xfer_mgr_alloc_named(queue_length,
+                                              msg_pool_depth,
+                                              uprobe_pthread_upump_mgr,
+                                              upump_mgr_alloc,
+                                              upump_pool_depth,
+                                              upump_blocker_pool_depth,
+                                              mutex,
+                                              pthread_id_p,
+                                              attr,
+                                              NULL);
 }
