@@ -175,8 +175,9 @@ static void upipe_qsrc_worker(struct upump *upump)
 {
     struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
     struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
-    struct uref *uref = uqueue_pop(&upipe_queue(upipe)->uqueue, struct uref *);
-    if (likely(uref != NULL))
+    struct uref *uref;
+
+    while ((uref = uqueue_pop(&upipe_queue(upipe)->uqueue, struct uref *)))
         upipe_qsrc_input(upipe, uref, &upipe_qsrc->upump);
 }
 
