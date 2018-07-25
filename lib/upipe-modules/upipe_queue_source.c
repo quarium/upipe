@@ -70,6 +70,8 @@ struct upipe_qsrc {
     struct upump *upump;
     /** oob watcher */
     struct upump *upump_oob;
+    /** idler watcher */
+    struct upump *idler;
 
     /** pipe acting as output */
     struct upipe *output;
@@ -79,6 +81,9 @@ struct upipe_qsrc {
     enum upipe_helper_output_state output_state;
     /** list of output requests */
     struct uchain request_list;
+
+    /** uref buffer */
+    struct uchain urefs;
 
     /** structure exported to the sinks */
     struct upipe_queue upipe_queue;
@@ -95,6 +100,7 @@ UPIPE_HELPER_OUTPUT(upipe_qsrc, output, flow_def, output_state, request_list)
 UPIPE_HELPER_UPUMP_MGR(upipe_qsrc, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_qsrc, upump, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_qsrc, upump_oob, upump_mgr)
+UPIPE_HELPER_UPUMP(upipe_qsrc, idler, upump_mgr)
 
 /** @internal @This allocates a queue source pipe.
  *
@@ -139,7 +145,9 @@ static struct upipe *_upipe_qsrc_alloc(struct upipe_mgr *mgr,
     upipe_qsrc_init_upump_mgr(upipe);
     upipe_qsrc_init_upump(upipe);
     upipe_qsrc_init_upump_oob(upipe);
+    upipe_qsrc_init_idler(upipe);
     upipe_qsrc->upipe_queue.max_length = length;
+    ulist_init(&upipe_qsrc->urefs);
     upipe_throw_ready(upipe);
 
     return upipe;
@@ -167,6 +175,23 @@ static void upipe_qsrc_input(struct upipe *upipe, struct uref *uref,
     upipe_qsrc_output(upipe, uref, upump_p);
 }
 
+/** @internal @This outputs data.
+ *
+ * @param upump description structure of the idler watcher
+ */
+static void upipe_qsrc_idle(struct upump *upump)
+{
+    struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
+    struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
+    struct uchain *uchain = ulist_pop(&upipe_qsrc->urefs);
+    if (uchain)
+        upipe_qsrc_input(upipe, uref_from_uchain(uchain), &upipe_qsrc->idler);
+    else {
+        upump_stop(upipe_qsrc->idler);
+        upump_start(upipe_qsrc->upump);
+    }
+}
+
 /** @internal @This reads data from the queue and outputs it.
  *
  * @param upump description structure of the read watcher
@@ -175,9 +200,19 @@ static void upipe_qsrc_worker(struct upump *upump)
 {
     struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
     struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
-    struct uref *uref = uqueue_pop(&upipe_queue(upipe)->uqueue, struct uref *);
-    if (likely(uref != NULL))
-        upipe_qsrc_input(upipe, uref, &upipe_qsrc->upump);
+    struct uref *urefs[upipe_qsrc->upipe_queue.max_length];
+    unsigned popped = uqueue_pop_all(&upipe_queue(upipe)->uqueue,
+                                     upipe_qsrc->upipe_queue.max_length,
+                                     (void **)urefs);
+
+    for (unsigned i = 0; i < popped; i++) {
+        ulist_add(&upipe_qsrc->urefs, uref_to_uchain(urefs[i]));
+    }
+
+    if (!ulist_empty(&upipe_qsrc->urefs)) {
+        upump_stop(upipe_qsrc->upump);
+        upump_start(upipe_qsrc->idler);
+    }
 }
 
 /** @internal @This handles the result of a request.
@@ -267,6 +302,12 @@ static int upipe_qsrc_unregister_request(struct upipe *upipe,
  */
 static void upipe_qsrc_source_end(struct upipe *upipe)
 {
+    struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
+
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&upipe_qsrc->urefs)))
+        upipe_qsrc_input(upipe, uref_from_uchain(uchain), NULL);
+
     struct uref *uref;
     while ((uref = uqueue_pop(&upipe_queue(upipe)->uqueue,
                               struct uref *)) != NULL)
@@ -282,10 +323,17 @@ static void upipe_qsrc_source_end(struct upipe *upipe)
  */
 static void upipe_qsrc_ref_end(struct upipe *upipe)
 {
+    struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
+
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&upipe_qsrc->urefs)))
+        upipe_qsrc_input(upipe, uref_from_uchain(uchain), NULL);
+
     struct uref *uref;
     while ((uref = uqueue_pop(&upipe_queue(upipe)->uqueue,
                               struct uref *)) != NULL)
         upipe_qsrc_input(upipe, uref, NULL);
+
 
     upipe_notice_va(upipe, "freeing queue %p", upipe);
     upipe_throw_dead(upipe);
@@ -300,6 +348,7 @@ static void upipe_qsrc_ref_end(struct upipe *upipe)
                                   struct upipe_queue_upstream *)) != NULL)
         upipe_queue_upstream_free(upstream);
 
+    upipe_qsrc_clean_idler(upipe);
     upipe_qsrc_clean_upump(upipe);
     upipe_qsrc_clean_upump_oob(upipe);
     upipe_qsrc_clean_upump_mgr(upipe);
@@ -311,7 +360,6 @@ static void upipe_qsrc_ref_end(struct upipe *upipe)
 
     upipe_qsrc_clean_urefcount(upipe);
     upipe_clean(upipe);
-    struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
     free(upipe_qsrc);
 }
 
@@ -392,6 +440,7 @@ static int _upipe_qsrc_control(struct upipe *upipe, int command, va_list args)
     switch (command) {
         case UPIPE_ATTACH_UPUMP_MGR:
             upipe_qsrc_set_upump(upipe, NULL);
+            upipe_qsrc_set_idler(upipe, NULL);
             return upipe_qsrc_attach_upump_mgr(upipe);
         case UPIPE_GET_FLOW_DEF:
         case UPIPE_GET_OUTPUT:
@@ -427,8 +476,11 @@ static int upipe_qsrc_control(struct upipe *upipe, int command, va_list args)
     upipe_qsrc_check_upump_mgr(upipe);
 
     struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
-    if (upipe_qsrc->upump_mgr != NULL && upipe_qsrc->upipe_queue.max_length &&
-        upipe_qsrc->upump == NULL) {
+    if (upipe_qsrc->upump_mgr == NULL ||
+        !upipe_qsrc->upipe_queue.max_length)
+        return UBASE_ERR_NONE;
+
+    if (upipe_qsrc->upump == NULL) {
         struct upump *upump =
             uqueue_upump_alloc_pop(&upipe_queue(upipe)->uqueue,
                                    upipe_qsrc->upump_mgr,
@@ -449,6 +501,17 @@ static int upipe_qsrc_control(struct upipe *upipe, int command, va_list args)
         }
         upipe_qsrc_set_upump_oob(upipe, upump);
         upump_start(upump);
+    }
+
+    if (upipe_qsrc->idler == NULL) {
+        struct upump *upump =
+            upump_alloc_idler(upipe_qsrc->upump_mgr,
+                              upipe_qsrc_idle, upipe, upipe->refcount);
+        if (unlikely(upump == NULL)) {
+            upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
+            return UBASE_ERR_UPUMP;
+        }
+        upipe_qsrc_set_idler(upipe, upump);
     }
 
     return UBASE_ERR_NONE;
