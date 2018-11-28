@@ -85,9 +85,6 @@ struct upipe_grid {
 static int upipe_grid_update_pts(struct upipe *upipe, uint64_t next_pts);
 /** @hidden */
 static int upipe_grid_uclock_now(struct upipe *upipe, uint64_t *now);
-/** @hidden */
-static int upipe_grid_catch_out(struct uprobe *uprobe, struct upipe *upipe,
-                                 int event, va_list args);
 
 UPIPE_HELPER_UPIPE(upipe_grid, upipe, UPIPE_GRID_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_grid, urefcount, upipe_grid_no_ref);
