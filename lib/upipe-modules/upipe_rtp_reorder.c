@@ -259,7 +259,6 @@ static struct upipe *upipe_rtpr_sub_alloc(struct upipe_mgr *mgr,
                                                  struct uprobe *uprobe,
                                                  uint32_t signature, va_list args)
 {
-    struct uref *flow_def;
     struct upipe *upipe = upipe_rtpr_sub_alloc_void(mgr, uprobe, signature, args);
     if (unlikely(upipe == NULL)) {
         return NULL;
