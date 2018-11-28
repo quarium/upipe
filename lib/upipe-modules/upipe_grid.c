@@ -747,7 +747,6 @@ static int upipe_grid_out_extract_sound(struct upipe *upipe, struct uref *uref)
         upipe_grid_in_from_upipe(upipe_grid_out->input);
     struct uref *input_flow_def = upipe_grid_in->flow_def;
     uint64_t next_pts;
-    int ret = UBASE_ERR_NONE;
 
     /* checked before */
     assert(input_flow_def);
