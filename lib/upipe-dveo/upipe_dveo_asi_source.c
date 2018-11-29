@@ -158,18 +158,6 @@ UPIPE_HELPER_UPUMP(upipe_dveo_asi_src, upump, upump_mgr)
 UPIPE_HELPER_OUTPUT_SIZE(upipe_dveo_asi_src, output_size)
 
 /* From the example code */
-static ssize_t util_read(const char *name, char *buf, size_t count)
-{
-    ssize_t fd, ret;
-
-    if ((fd = open (name, O_RDONLY)) < 0) {
-        return fd;
-    }
-    ret = read (fd, buf, count);
-    close (fd);
-    return ret;
-}
-
 static ssize_t util_write(const char *name, const char *buf, size_t count)
 {
     ssize_t fd, ret;
@@ -372,7 +360,6 @@ static int upipe_dveo_asi_src_open(struct upipe *upipe)
 {
     struct upipe_dveo_asi_src *upipe_dveo_asi_src = upipe_dveo_asi_src_from_upipe(upipe);
     char path[20], sys[50], buf[20];
-    int ret;
 
     snprintf(sys, sizeof(sys), dvbm_sys_fmt, upipe_dveo_asi_src->card_idx, "bypass_mode");
     snprintf(buf, sizeof(buf), "%u", BYPASS_MODE);
