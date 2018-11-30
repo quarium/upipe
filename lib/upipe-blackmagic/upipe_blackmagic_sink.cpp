@@ -549,15 +549,6 @@ static void upipe_bmd_sink_sub_free(struct upipe *upipe)
     upipe_bmd_sink_sub_free_flow(upipe);
 }
 
-static int upipe_bmd_sink_sub_read_uref_attributes(struct uref *uref,
-    uint64_t *pts, size_t *size)
-{
-    UBASE_RETURN(uref_clock_get_pts_sys(uref, pts));
-    UBASE_RETURN(uref_sound_size(uref, size, NULL /* sample_size */));
-
-    return UBASE_ERR_NONE;
-}
-
 static void copy_samples(upipe_bmd_sink_sub *upipe_bmd_sink_sub,
         struct uref *uref, uint64_t samples)
 {
