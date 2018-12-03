@@ -578,12 +578,6 @@ static void copy_samples(upipe_bmd_sink_sub *upipe_bmd_sink_sub,
     uref_sound_unmap(uref, 0, samples, 1);
 }
 
-static inline uint64_t length_to_samples(const uint64_t length)
-{
-    /* rounding down */
-    return (length * 48000) / UCLOCK_FREQ;
-}
-
 /** @internal @This fills the audio samples for one single stereo pair
  */
 static unsigned upipe_bmd_sink_sub_sound_get_samples_channel(struct upipe *upipe,
