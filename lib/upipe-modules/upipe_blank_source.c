@@ -182,29 +182,32 @@ static struct upipe *upipe_blksrc_alloc(struct upipe_mgr *mgr,
     upipe_throw_ready(upipe);
 
     uint64_t duration = 0;
-    if (ubase_check(uref_flow_match_def(flow_def, UREF_PIC_FLOW_DEF))) {
-        struct urational fps;
-        if (unlikely(!ubase_check(uref_pic_flow_get_fps(flow_def, &fps)))) {
+    if (!ubase_check(uref_clock_get_duration(flow_def, &duration))) {
+        if (ubase_check(uref_flow_match_def(flow_def, UREF_PIC_FLOW_DEF))) {
+            struct urational fps;
+            if (unlikely(!ubase_check(uref_pic_flow_get_fps(flow_def, &fps)))) {
+                upipe_release(upipe);
+                return NULL;
+            }
+            duration = (uint64_t)UCLOCK_FREQ * fps.den / fps.num;
+        }
+        else if (ubase_check(uref_flow_match_def(
+                    flow_def, UREF_SOUND_FLOW_DEF))) {
+            uint64_t samples, rate;
+            if (unlikely(!ubase_check(uref_sound_flow_get_samples(flow_def,
+                                                                  &samples))) ||
+                unlikely(!ubase_check(uref_sound_flow_get_rate(flow_def,
+                                                               &rate)))) {
+                upipe_release(upipe);
+                return NULL;
+            }
+            duration = samples * UCLOCK_FREQ / rate;
+        }
+        else {
+            upipe_warn(upipe, "unsupported flow def");
             upipe_release(upipe);
             return NULL;
         }
-        duration = (uint64_t)UCLOCK_FREQ * fps.den / fps.num;
-    }
-    else if (ubase_check(uref_flow_match_def(flow_def, UREF_SOUND_FLOW_DEF))) {
-        uint64_t samples, rate;
-        if (unlikely(!ubase_check(uref_sound_flow_get_samples(flow_def,
-                                                              &samples))) ||
-            unlikely(!ubase_check(uref_sound_flow_get_rate(flow_def,
-                                                           &rate)))) {
-            upipe_release(upipe);
-            return NULL;
-        }
-        duration = samples * UCLOCK_FREQ / rate;
-    }
-    else {
-        upipe_warn(upipe, "unsupported flow def");
-        upipe_release(upipe);
-        return NULL;
     }
 
     struct uref *src_flow_def = uref_void_flow_alloc_def(flow_def->mgr);

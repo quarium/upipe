@@ -48,6 +48,7 @@
 #include <upipe/uref_clock.h>
 #include <upipe/uref_pic.h>
 #include <upipe/uref_pic_flow.h>
+#include <upipe/uref_sound.h>
 #include <upipe/uref_sound_flow.h>
 #include <upipe/upipe.h>
 #include <upipe/upipe_helper_upipe.h>
@@ -108,7 +109,19 @@ static void test_input(struct upipe *upipe, struct uref *uref,
 {
     struct blksrc_test *blksrc_test = blksrc_test_from_upipe(upipe);
     uint64_t pts = 0, duration = 0;
+    struct uref *current_flow_def;
+
+    ubase_assert(upipe_get_flow_def(blksrc, &current_flow_def));
+
     uref_dump(uref, upipe->uprobe);
+    if (ubase_check(uref_flow_match_def(current_flow_def,
+                                        UREF_SOUND_FLOW_DEF))) {
+        size_t samples;
+        uint8_t size;
+        ubase_assert(uref_sound_size(uref, &samples, &size));
+        upipe_dbg_va(upipe, "sample %i: %zu samples of %u bytes",
+                     blksrc_test->counter, samples, size);
+    }
     ubase_assert(uref_clock_get_pts_sys(uref, &pts));
     ubase_assert(uref_clock_get_duration(uref, &duration));
 
@@ -120,9 +133,6 @@ static void test_input(struct upipe *upipe, struct uref *uref,
     blksrc_test->next_pts += duration;
     blksrc_test->counter++;
     uref_free(uref);
-
-    struct uref *current_flow_def;
-    ubase_assert(upipe_get_flow_def(blksrc, &current_flow_def));
 
     if (unlikely(blksrc_test->counter == 1) &&
         ubase_check(uref_flow_match_def(current_flow_def,
@@ -289,6 +299,35 @@ int main(int argc, char **argv)
     /* blksrc_test */
     blksrc_test = upipe_void_alloc(&blksrc_test_mgr,
         uprobe_pfx_alloc(uprobe_use(logger), UPROBE_LOG_LEVEL, "blksrc_test(snd)"));
+    assert(blksrc_test);
+    ubase_assert(upipe_set_output(blksrc, blksrc_test));
+
+    /* launch test */
+    upump_mgr_run(upump_mgr, NULL);
+
+    /* release pipes */
+    test_free(blksrc_test);
+
+    printf("sound test went fine, moving to sound test with duration\n");
+
+    /* sound flow definition */
+    flow = uref_sound_flow_alloc_def(uref_mgr, "s16.", CHANNELS, 2 * CHANNELS);
+    assert(flow);
+    ubase_assert(uref_sound_flow_add_plane(flow, "lr"));
+    ubase_assert(uref_sound_flow_set_rate(flow, RATE));
+    ubase_assert(uref_clock_set_duration(flow, 900900));
+
+    /* blksrc pipe */
+    blksrc = upipe_flow_alloc(upipe_blksrc_mgr,
+        uprobe_pfx_alloc(uprobe_use(logger), UPROBE_LOG_LEVEL, "blksrc(snd2)"),
+        flow);
+    assert(blksrc);
+    uref_free(flow);
+
+    /* blksrc_test */
+    blksrc_test = upipe_void_alloc(&blksrc_test_mgr,
+        uprobe_pfx_alloc(uprobe_use(logger), UPROBE_LOG_LEVEL,
+                         "blksrc_test(snd2)"));
     assert(blksrc_test);
     ubase_assert(upipe_set_output(blksrc, blksrc_test));
 
