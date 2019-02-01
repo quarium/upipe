@@ -36,6 +36,7 @@
 #include <upipe/uref_sound_flow.h>
 #include <upipe/uref_void_flow.h>
 #include <upipe/uref_dump.h>
+#include <upipe/uref_sound.h>
 
 #include <upipe/upipe.h>
 
@@ -105,6 +106,11 @@ static void sink_input(struct upipe *upipe, struct uref *uref,
     assert(sink->count <= LIMIT);
     uref_dump(uref, upipe->uprobe);
     assert(uref->ubuf);
+    size_t size;
+    uint8_t sample_size;
+    ubase_assert(uref_sound_size(uref, &size, &sample_size));
+    upipe_notice_va(upipe, "sample %"PRIu64": size = %zu, sample size = %u",
+                    sink->count, size, sample_size);
     uref_free(uref);
 }
 
@@ -194,6 +200,29 @@ int main(int argc, char *argv[])
     assert(flow_def);
     ubase_assert(upipe_set_flow_def(upipe_ablk, flow_def));
     uref_free(flow_def);
+
+    for (unsigned i = 0; i < LIMIT; i++) {
+        struct uref *uref = uref_alloc_control(uref_mgr);
+        upipe_input(upipe_ablk, uref, NULL);
+    }
+
+#define DURATION    900900
+    flow_def =
+        uref_sound_flow_alloc_def(uref_mgr, "s16.", CHANNELS, 2 * CHANNELS);
+    assert(flow_def);
+    ubase_assert(uref_sound_flow_add_plane(flow_def, "lr"));
+    ubase_assert(uref_sound_flow_set_rate(flow_def, RATE));
+    ubase_assert(uref_clock_set_duration(flow_def, DURATION));
+    ubase_assert(upipe_set_flow_def(upipe_ablk, flow_def));
+    uref_free(flow_def);
+
+    sink =
+        upipe_void_alloc_output(upipe_ablk, &sink_mgr,
+                                uprobe_pfx_alloc(uprobe_use(uprobe),
+                                                 UPROBE_LOG_LEVEL,
+                                                 "sink"));
+    assert(sink);
+    upipe_release(sink);
 
     for (unsigned i = 0; i < LIMIT; i++) {
         struct uref *uref = uref_alloc_control(uref_mgr);
