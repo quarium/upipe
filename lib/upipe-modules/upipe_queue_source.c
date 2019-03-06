@@ -42,6 +42,7 @@
 #include <upipe/upipe.h>
 #include <upipe/upipe_helper_upipe.h>
 #include <upipe/upipe_helper_urefcount.h>
+#include <upipe/upipe_helper_urefcount_real.h>
 #include <upipe/upipe_helper_output.h>
 #include <upipe/upipe_helper_upump_mgr.h>
 #include <upipe/upipe_helper_upump.h>
@@ -63,6 +64,8 @@
 struct upipe_qsrc {
     /** refcount management structure */
     struct urefcount urefcount;
+    /** internal refcount management structure */
+    struct urefcount urefcount_real;
 
     /** upump manager */
     struct upump_mgr *upump_mgr;
@@ -89,6 +92,7 @@ struct upipe_qsrc {
 
 UPIPE_HELPER_UPIPE(upipe_qsrc, upipe_queue.upipe, UPIPE_QSRC_SIGNATURE)
 UPIPE_HELPER_UREFCOUNT(upipe_qsrc, urefcount, upipe_qsrc_no_ref)
+UPIPE_HELPER_UREFCOUNT_REAL(upipe_qsrc, urefcount_real, upipe_qsrc_ref_end)
 
 UPIPE_HELPER_OUTPUT(upipe_qsrc, output, flow_def, output_state, request_list)
 
@@ -135,6 +139,7 @@ static struct upipe *_upipe_qsrc_alloc(struct upipe_mgr *mgr,
     }
 
     upipe_qsrc_init_urefcount(upipe);
+    upipe_qsrc_init_urefcount_real(upipe);
     upipe_qsrc_init_output(upipe);
     upipe_qsrc_init_upump_mgr(upipe);
     upipe_qsrc_init_upump(upipe);
@@ -309,6 +314,7 @@ static void upipe_qsrc_ref_end(struct upipe *upipe)
     uqueue_clean(&upipe_queue(upipe)->downstream_oob);
     uqueue_clean(&upipe_queue(upipe)->upstream_oob);
 
+    upipe_qsrc_clean_urefcount_real(upipe);
     upipe_qsrc_clean_urefcount(upipe);
     upipe_clean(upipe);
     struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
@@ -342,7 +348,7 @@ static void upipe_qsrc_oob(struct upump *upump)
             break;
 
         case UPIPE_QUEUE_DOWNSTREAM_REF_END:
-            upipe_qsrc_ref_end(upipe);
+            upipe_qsrc_release_urefcount_real(upipe);
             break;
     }
 
@@ -430,18 +436,22 @@ static int upipe_qsrc_control(struct upipe *upipe, int command, va_list args)
     if (upipe_qsrc->upump_mgr != NULL && upipe_qsrc->upipe_queue.max_length &&
         upipe_qsrc->upump == NULL) {
         struct upump *upump =
-            uqueue_upump_alloc_pop(&upipe_queue(upipe)->uqueue,
-                                   upipe_qsrc->upump_mgr,
-                                   upipe_qsrc_worker, upipe, upipe->refcount);
+            uqueue_upump_alloc_pop(
+                &upipe_queue(upipe)->uqueue,
+                upipe_qsrc->upump_mgr,
+                upipe_qsrc_worker, upipe,
+                upipe_qsrc_to_urefcount_real(upipe_qsrc));
         if (unlikely(upump == NULL)) {
             upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
             return UBASE_ERR_UPUMP;
         }
         upipe_qsrc_set_upump(upipe, upump);
         upump_start(upump);
-        upump = uqueue_upump_alloc_pop(&upipe_queue(upipe)->downstream_oob,
-                                       upipe_qsrc->upump_mgr,
-                                       upipe_qsrc_oob, upipe, upipe->refcount);
+        upump = uqueue_upump_alloc_pop(
+            &upipe_queue(upipe)->downstream_oob,
+            upipe_qsrc->upump_mgr,
+            upipe_qsrc_oob, upipe,
+            upipe_qsrc_to_urefcount_real(upipe_qsrc));
         if (unlikely(upump == NULL)) {
             upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
             upipe_qsrc_set_upump(upipe, NULL);
@@ -464,7 +474,7 @@ static void upipe_qsrc_no_ref(struct upipe *upipe)
 {
     struct upipe_qsrc *upipe_qsrc = upipe_qsrc_from_upipe(upipe);
     if (upipe_qsrc->upump_oob == NULL) {
-        upipe_qsrc_ref_end(upipe);
+        upipe_qsrc_release_urefcount_real(upipe);
         return;
     }
 
