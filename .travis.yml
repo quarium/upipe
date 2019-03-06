@@ -137,6 +137,7 @@ before_script:
 script:
   - CONFIGURE_FLAGS="$CONFIGURE_FLAGS
       --disable-silent-rules $HOST
+      --enable-debug-refcount
       CC=\"$HOST_CC\"
       CXX=\"$HOST_CXX\"
       CFLAGS=\"-Werror -Wno-error=deprecated-declarations -O2 -g $CFLAGS\"

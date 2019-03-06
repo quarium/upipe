@@ -36,6 +36,15 @@ AM_COND_IF(BUILD_LUAJIT,
            AC_CHECK_PROGS(EU_READELF, eu-readelf)
            AC_CHECK_PROGS(LLVM_DWARFDUMP, [llvm-dwarfdump "xcrun llvm-dwarfdump"]))
 
+AC_ARG_ENABLE(
+    [debug-refcount],
+    AS_HELP_STRING(
+        [--enable-debug-refcount],
+        [Enable refcount debugging]))
+AM_CONDITIONAL(HAVE_DEBUG_REFCOUNT, [test x$enable_debug_refcount = xyes])
+AM_COND_IF(HAVE_DEBUG_REFCOUNT,
+           AC_DEFINE(HAVE_DEBUG_REFCOUNT, 1, Define to 1 if refcount debugging is enabled))
+
 AC_PATH_PROGS(NASM, [nasm yasm])
 
 NASMFLAGS=""

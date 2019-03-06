@@ -34,6 +34,7 @@
 extern "C" {
 #endif
 
+#include <upipe/config.h>
 #include <upipe/ubase.h>
 #include <upipe/uatomic.h>
 
@@ -84,7 +85,7 @@ static inline void urefcount_reset(struct urefcount *refcount)
  */
 static inline struct urefcount *urefcount_use(struct urefcount *refcount)
 {
-    if (refcount != NULL && refcount->cb != NULL) {
+    if (refcount != NULL) {
         uatomic_fetch_add(&refcount->refcount, 1);
         return refcount;
     } else
@@ -98,11 +99,17 @@ static inline struct urefcount *urefcount_use(struct urefcount *refcount)
  */
 static inline void urefcount_release(struct urefcount *refcount)
 {
-    if (refcount != NULL && refcount->cb != NULL &&
-        uatomic_fetch_sub(&refcount->refcount, 1) == 1) {
-        urefcount_cb cb = refcount->cb;
-        refcount->cb = NULL; /* avoid triggering it twice */
-        cb(refcount);
+    if (refcount) {
+        uint32_t counter = uatomic_fetch_sub(&refcount->refcount, 1);
+#ifdef UPIPE_HAVE_DEBUG_REFCOUNT
+        assert(counter);
+#endif
+        if (counter == 1) {
+            urefcount_cb cb = refcount->cb;
+            refcount->cb = NULL; /* avoid triggering it twice */
+            if (cb)
+                cb(refcount);
+        }
     }
 }
 
@@ -135,6 +142,9 @@ static inline bool urefcount_dead(struct urefcount *refcount)
 static inline void urefcount_clean(struct urefcount *refcount)
 {
     assert(refcount != NULL);
+#ifdef UPIPE_HAVE_DEBUG_REFCOUNT
+    assert(uatomic_load(&refcount->refcount) == 0);
+#endif
     uatomic_clean(&refcount->refcount);
 }
 
