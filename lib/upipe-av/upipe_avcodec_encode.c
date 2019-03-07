@@ -46,6 +46,7 @@
 #include <upipe/upipe.h>
 #include <upipe/upipe_helper_upipe.h>
 #include <upipe/upipe_helper_urefcount.h>
+#include <upipe/upipe_helper_urefcount_real.h>
 #include <upipe/upipe_helper_flow.h>
 #include <upipe/upipe_helper_ubuf_mgr.h>
 #include <upipe/upipe_helper_output.h>
@@ -107,6 +108,8 @@ static int upipe_avcenc_set_option(struct upipe *upipe,
 struct upipe_avcenc {
     /** refcount management structure */
     struct urefcount urefcount;
+    /** internal refcount management structure */
+    struct urefcount urefcount_real;
 
     /** input flow */
     struct uref *flow_def_input;
@@ -186,6 +189,7 @@ struct upipe_avcenc {
 
 UPIPE_HELPER_UPIPE(upipe_avcenc, upipe, UPIPE_AVCENC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_avcenc, urefcount, upipe_avcenc_close)
+UPIPE_HELPER_UREFCOUNT_REAL(upipe_avcenc, urefcount_real, upipe_avcenc_free)
 UPIPE_HELPER_FLOW(upipe_avcenc, "block.")
 UPIPE_HELPER_OUTPUT(upipe_avcenc, output, flow_def, output_state, request_list)
 UPIPE_HELPER_INPUT(upipe_avcenc, urefs, nb_urefs, max_urefs, blockers, upipe_avcenc_handle)
@@ -251,9 +255,6 @@ static const char *
     }
     return upipe_color;
 }
-
-/** @hidden */
-static void upipe_avcenc_free(struct upipe *upipe);
 
 /** @This aborts and frees an existing upump watching for exclusive access to
  * avcodec_open().
@@ -330,6 +331,7 @@ static void upipe_avcenc_cb_av_deal(struct upump *upump)
     if (upipe_avcenc->close) {
         if (was_buffered)
             upipe_release(upipe);
+        upipe_avcenc_release_urefcount_real(upipe);
         return;
     }
 
@@ -361,14 +363,14 @@ static void upipe_avcenc_start_av_deal(struct upipe *upipe)
         upipe_dbg(upipe, "no upump_mgr present, direct call to avcodec_open");
         upipe_avcenc_do_av_deal(upipe);
         if (upipe_avcenc->close)
-            upipe_avcenc_free(upipe);
+            upipe_avcenc_release_urefcount_real(upipe);
         return;
     }
 
     upipe_dbg(upipe, "upump_mgr present, using udeal");
     struct upump *upump_av_deal =
         upipe_av_deal_upump_alloc(upipe_avcenc->upump_mgr,
-                upipe_avcenc_cb_av_deal, upipe, upipe->refcount);
+                upipe_avcenc_cb_av_deal, upipe, &upipe_avcenc->urefcount_real);
     if (unlikely(!upump_av_deal)) {
         upipe_err(upipe, "can't create dealer");
         upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
@@ -401,7 +403,7 @@ static void upipe_avcenc_close(struct upipe *upipe)
     struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
     AVCodecContext *context = upipe_avcenc->context;
     if ((context == NULL) || !avcodec_is_open(context)) {
-        upipe_avcenc_free(upipe);
+        upipe_avcenc_release_urefcount_real(upipe);
         return;
     }
 
@@ -1491,6 +1493,7 @@ static void upipe_avcenc_free(struct upipe *upipe)
     upipe_avcenc_clean_flow_def(upipe);
     upipe_avcenc_clean_flow_def_check(upipe);
     upipe_avcenc_clean_urefcount(upipe);
+    upipe_avcenc_clean_urefcount_real(upipe);
     upipe_avcenc_free_flow(upipe);
 }
 
@@ -1544,6 +1547,7 @@ static struct upipe *upipe_avcenc_alloc(struct upipe_mgr *mgr,
     upipe_avcenc->context->opaque = upipe;
 
     upipe_avcenc_init_urefcount(upipe);
+    upipe_avcenc_init_urefcount_real(upipe);
     upipe_avcenc_init_ubuf_mgr(upipe);
     upipe_avcenc_init_upump_mgr(upipe);
     upipe_avcenc_init_upump_av_deal(upipe);
