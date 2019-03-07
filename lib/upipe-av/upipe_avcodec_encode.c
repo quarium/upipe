@@ -326,12 +326,13 @@ static void upipe_avcenc_cb_av_deal(struct upump *upump)
     upump_free(upipe_avcenc->upump_av_deal);
     upipe_avcenc->upump_av_deal = NULL;
 
+    bool was_buffered = !upipe_avcenc_check_input(upipe);
     if (upipe_avcenc->close) {
-        upipe_avcenc_free(upipe);
+        if (was_buffered)
+            upipe_release(upipe);
         return;
     }
 
-    bool was_buffered = !upipe_avcenc_check_input(upipe);
     if (ret)
         upipe_avcenc_output_input(upipe);
     else
