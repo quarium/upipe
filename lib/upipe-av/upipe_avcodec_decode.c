@@ -659,6 +659,7 @@ static void upipe_avcdec_cb_av_deal(struct upump *upump)
     upipe_avcdec->upump_av_deal = NULL;
 
     if (upipe_avcdec->close) {
+        upipe_release(upipe);
         upipe_avcdec_free(upipe);
         return;
     }
