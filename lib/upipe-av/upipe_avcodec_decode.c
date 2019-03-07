@@ -45,6 +45,7 @@
 #include <upipe/upipe.h>
 #include <upipe/upipe_helper_upipe.h>
 #include <upipe/upipe_helper_urefcount.h>
+#include <upipe/upipe_helper_urefcount_real.h>
 #include <upipe/upipe_helper_void.h>
 #include <upipe/upipe_helper_ubuf_mgr.h>
 #include <upipe/upipe_helper_output.h>
@@ -90,6 +91,8 @@ static bool upipe_avcdec_decode(struct upipe *upipe, struct uref *uref,
 struct upipe_avcdec {
     /** refcount management structure */
     struct urefcount urefcount;
+    /** internal refcount management structure */
+    struct urefcount urefcount_real;
 
     /** input flow */
     struct uref *flow_def_input;
@@ -175,6 +178,7 @@ struct upipe_avcdec {
 
 UPIPE_HELPER_UPIPE(upipe_avcdec, upipe, UPIPE_AVCDEC_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_avcdec, urefcount, upipe_avcdec_close)
+UPIPE_HELPER_UREFCOUNT_REAL(upipe_avcdec, urefcount_real, upipe_avcdec_free)
 UPIPE_HELPER_VOID(upipe_avcdec)
 UPIPE_HELPER_OUTPUT(upipe_avcdec, output, flow_def, output_state, request_list)
 UPIPE_HELPER_FLOW_DEF(upipe_avcdec, flow_def_input, flow_def_attr)
@@ -187,9 +191,6 @@ UPIPE_HELPER_UBUF_MGR(upipe_avcdec, ubuf_mgr, flow_format, ubuf_mgr_request,
 UPIPE_HELPER_UPUMP_MGR(upipe_avcdec, upump_mgr)
 UPIPE_HELPER_UPUMP(upipe_avcdec, upump_av_deal, upump_mgr)
 UPIPE_HELPER_INPUT(upipe_avcdec, urefs, nb_urefs, max_urefs, blockers, upipe_avcdec_decode)
-
-/** @hidden */
-static void upipe_avcdec_free(struct upipe *upipe);
 
 /** @internal @This provides a ubuf_mgr request.
  *
@@ -660,7 +661,7 @@ static void upipe_avcdec_cb_av_deal(struct upump *upump)
 
     if (upipe_avcdec->close) {
         upipe_release(upipe);
-        upipe_avcdec_free(upipe);
+        upipe_avcdec_release_urefcount_real(upipe);
         return;
     }
 
@@ -690,14 +691,14 @@ static void upipe_avcdec_start_av_deal(struct upipe *upipe)
         upipe_dbg(upipe, "no upump_mgr present, direct call to avcodec_open");
         upipe_avcdec_do_av_deal(upipe);
         if (upipe_avcdec->close)
-            upipe_avcdec_free(upipe);
+            upipe_avcdec_release_urefcount_real(upipe);
         return;
     }
 
     upipe_dbg(upipe, "upump_mgr present, using udeal");
     struct upump *upump_av_deal =
         upipe_av_deal_upump_alloc(upipe_avcdec->upump_mgr,
-                upipe_avcdec_cb_av_deal, upipe, upipe->refcount);
+                upipe_avcdec_cb_av_deal, upipe, &upipe_avcdec->urefcount_real);
     if (unlikely(!upump_av_deal)) {
         upipe_err(upipe, "can't create dealer");
         upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
@@ -732,7 +733,7 @@ static void upipe_avcdec_close(struct upipe *upipe)
 {
     struct upipe_avcdec *upipe_avcdec = upipe_avcdec_from_upipe(upipe);
     if (upipe_avcdec->context == NULL) {
-        upipe_avcdec_free(upipe);
+        upipe_avcdec_release_urefcount_real(upipe);
         return;
     }
 
@@ -1614,6 +1615,7 @@ static void upipe_avcdec_free(struct upipe *upipe)
     upipe_avcdec_clean_upump_av_deal(upipe);
     upipe_avcdec_clean_upump_mgr(upipe);
     upipe_avcdec_clean_urefcount(upipe);
+    upipe_avcdec_clean_urefcount_real(upipe);
     upipe_avcdec_free_void(upipe);
 }
 
@@ -1639,6 +1641,7 @@ static struct upipe *upipe_avcdec_alloc(struct upipe_mgr *mgr,
         return NULL;
     }
     upipe_avcdec_init_urefcount(upipe);
+    upipe_avcdec_init_urefcount_real(upipe);
     upipe_avcdec_init_ubuf_mgr(upipe);
     upipe_avcdec_init_upump_mgr(upipe);
     upipe_avcdec_init_upump_av_deal(upipe);
