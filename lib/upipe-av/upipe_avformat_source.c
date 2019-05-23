@@ -585,6 +585,17 @@ static void upipe_avfsrc_worker(struct upump *upump)
         return;
     }
 
+    if (pkt.dts != (int64_t)AV_NOPTS_VALUE) {
+        static uint64_t last_dts_orig = 0;
+        if (pkt.dts < last_dts_orig) {
+            pkt.dts = last_dts_orig + 1;
+            if (pkt.pts != (int64_t)AV_NOPTS_VALUE) {
+                pkt.pts = pkt.dts;
+            }
+        }
+        last_dts_orig = pkt.dts;
+    }
+
     AVStream *stream = upipe_avfsrc->context->streams[pkt.stream_index];
     uint64_t systime = upipe_avfsrc->uclock != NULL ?
                        uclock_now(upipe_avfsrc->uclock) : UINT64_MAX;
