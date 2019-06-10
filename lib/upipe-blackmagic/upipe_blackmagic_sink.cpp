@@ -932,6 +932,7 @@ static bool upipe_bmd_sink_sub_output(struct upipe *upipe, struct uref *uref)
         }
         pts += upipe_bmd_sink_sub->latency;
         upipe_bmd_sink->start_pts = pts;
+        upipe_bmd_sink->offset = pts;
 
         return false;
     }
