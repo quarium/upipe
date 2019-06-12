@@ -96,3 +96,7 @@ endif
 if HAVE_DVBV5
 SUBDIRS += upipe-dvb
 endif
+
+if HAVE_SDL2
+SUBDIRS += upipe-sdl2
+endif
