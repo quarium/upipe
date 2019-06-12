@@ -100,3 +100,7 @@ endif
 if HAVE_BEARSSL
 SUBDIRS += upipe-bearssl
 endif
+
+if HAVE_SDL2
+SUBDIRS += upipe-sdl2
+endif

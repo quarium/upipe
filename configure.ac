@@ -180,6 +180,7 @@ AC_CHECK_HEADERS([dlfcn.h], AM_CONDITIONAL(HAVE_DLFCN_H, true), AM_CONDITIONAL(H
 AC_CHECK_HEADERS([amt.h], AM_CONDITIONAL(HAVE_AMT, true), AM_CONDITIONAL(HAVE_AMT, false))
 AC_CHECK_HEADERS([net/netmap.h], AM_CONDITIONAL(HAVE_NETMAP, true), AM_CONDITIONAL(HAVE_NETMAP, false),[#include <stdint.h>
 #include <net/if.h>])
+AC_CHECK_HEADERS([SDL2/SDL.h], AM_CONDITIONAL(HAVE_SDL2, true), AM_CONDITIONAL(HAVE_SDL2, false))
 
 # Checks for header files.
 AC_CHECK_HEADERS([fcntl.h stddef.h stdint.h stdlib.h string.h unistd.h sys/ioctl.h semaphore.h features.h net/if.h])
@@ -266,6 +267,7 @@ AC_CONFIG_FILES([Makefile
                  include/upipe-dvbcsa/Makefile
                  include/upipe-ebur128/Makefile
                  include/upipe-bearssl/Makefile
+                 include/upipe-sdl2/Makefile
                  lib/Makefile
                  lib/upipe/Makefile
                  lib/upipe/libupipe.pc
@@ -331,6 +333,8 @@ AC_CONFIG_FILES([Makefile
                  lib/upipe-ebur128/libupipe_ebur128.pc
                  lib/upipe-bearssl/Makefile
                  lib/upipe-bearssl/libupipe_bearssl.pc
+                 lib/upipe-sdl2/Makefile
+                 lib/upipe-sdl2/libupipe_sdl2.pc
                  x86/Makefile
                  x86/config.asm
                  tests/Makefile
