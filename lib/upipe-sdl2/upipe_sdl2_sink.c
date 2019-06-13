@@ -5,6 +5,7 @@
 #include <upipe/upipe_helper_urefcount.h>
 #include <upipe/upipe_helper_upump_mgr.h>
 #include <upipe/upipe_helper_upump.h>
+#include <upipe/upipe_helper_uclock.h>
 #include <upipe/uref_pic_flow.h>
 #include <upipe/uref_pic.h>
 #include <upipe/uref_pic_flow_formats.h>
@@ -20,8 +21,7 @@
 
 #define APP_SHADER_SOURCE(...) #__VA_ARGS__;
 
-static const bool test = false;
-
+#if 1
 const char * const APP_VERTEX_SHADER = APP_SHADER_SOURCE(
     attribute vec2 vertex;
     varying vec2 tex_coord;
@@ -31,12 +31,23 @@ const char * const APP_VERTEX_SHADER = APP_SHADER_SOURCE(
         gl_Position = vec4((vertex * 2.0 - 1.0) * vec2(1, -1), 0.0, 1.0);
     }
 );
+#else
+const char * const APP_VERTEX_SHADER = APP_SHADER_SOURCE(
+    layout (location = 0) in vec3 aPos;
 
-const char * const APP_FRAGMENT_SHADER_YCRCB = APP_SHADER_SOURCE(
+    void main()
+    {
+        gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+    }
+);
+#endif
+
+const char * const APP_FRAGMENT_SHADER_YUV = APP_SHADER_SOURCE(
     uniform sampler2D texture_y;
-    uniform sampler2D texture_cb;
-    uniform sampler2D texture_cr;
+    uniform sampler2D texture_u;
+    uniform sampler2D texture_v;
     varying vec2 tex_coord;
+    varying vec2 scale;
 
     mat4 rec601 = mat4(
         1.16438,  0.00000,  1.59603, -0.87079,
@@ -47,10 +58,11 @@ const char * const APP_FRAGMENT_SHADER_YCRCB = APP_SHADER_SOURCE(
 
     void main() {
         float y = texture2D(texture_y, tex_coord).r;
-        float cb = texture2D(texture_cb, tex_coord).r;
-        float cr = texture2D(texture_cr, tex_coord).r;
+        float u = texture2D(texture_u, tex_coord).r;
+        float v = texture2D(texture_v, tex_coord).r;
 
-        gl_FragColor = vec4(y, cb, cr, 1.0) * rec601;
+            //gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            gl_FragColor = vec4(y, u, v, 1.0) * rec601;
     }
 );
 
@@ -60,6 +72,13 @@ const char * const APP_FRAGMENT_SHADER_RGB = APP_SHADER_SOURCE(
 
     void main() {
         gl_FragColor = vec4(texture2D(texture_rgb, tex_coord).rgb, 1.0);
+    }
+);
+
+
+const char *const APP_FRAGMENT_SHADER_ORANGE = APP_SHADER_SOURCE(
+    void main() {
+        gl_FragColor = vec4(1.0, 0.5, 0.2, 1.0);
     }
 );
 
@@ -78,12 +97,14 @@ struct upipe_sdl2_sink {
     struct urefcount urefcount;
     struct upump_mgr *upump_mgr;
     struct upump *idler;
+    struct upump *timer;
+    struct uclock *uclock;
+    struct urequest uclock_request;
+    struct uchain list;
 
     SDL_Window *window;
     SDL_GLContext gl;
     GLuint shader_program;
-    GLuint vertex_shader;
-    GLuint fragment_shader;
 
     enum texture_mode {
         TEXTURE_MODE_NONE,
@@ -96,9 +117,7 @@ struct upipe_sdl2_sink {
 
     int width;
     int height;
-
-    struct uref *last;
-    struct uref *current;
+    uint64_t latency;
 };
 
 UPIPE_HELPER_UPIPE(upipe_sdl2_sink, upipe, UPIPE_SDL2_SINK_SIGNATURE);
@@ -106,6 +125,11 @@ UPIPE_HELPER_VOID(upipe_sdl2_sink);
 UPIPE_HELPER_UREFCOUNT(upipe_sdl2_sink, urefcount, upipe_sdl2_sink_free);
 UPIPE_HELPER_UPUMP_MGR(upipe_sdl2_sink, upump_mgr);
 UPIPE_HELPER_UPUMP(upipe_sdl2_sink, idler, upump_mgr);
+UPIPE_HELPER_UPUMP(upipe_sdl2_sink, timer, upump_mgr);
+UPIPE_HELPER_UCLOCK(upipe_sdl2_sink, uclock, uclock_request, NULL,
+                    upipe_throw_provide_request, NULL);
+
+static void upipe_sdl2_sink_timeout(struct upump *timer);
 
 static GLuint upipe_sdl2_sink_create_texture(struct upipe *upipe,
                                              GLuint index,
@@ -118,11 +142,10 @@ static GLuint upipe_sdl2_sink_create_texture(struct upipe *upipe,
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 
-    if (!test)
-        glUniform1i(glGetUniformLocation(sdl2_sink->shader_program, name), index);
+    glUniform1i(glGetUniformLocation(sdl2_sink->shader_program, name), index);
     return texture;
 }
 
@@ -158,9 +181,10 @@ static struct upipe *upipe_sdl2_sink_alloc(struct upipe_mgr *mgr,
     upipe_sdl2_sink_init_urefcount(upipe);
     upipe_sdl2_sink_init_upump_mgr(upipe);
     upipe_sdl2_sink_init_idler(upipe);
+    upipe_sdl2_sink_init_timer(upipe);
+    upipe_sdl2_sink_init_uclock(upipe);
     sdl2_sink->texture_mode = TEXTURE_MODE_NONE;
-    sdl2_sink->last = NULL;
-    sdl2_sink->current = NULL;
+    ulist_init(&sdl2_sink->list);
 
     upipe_throw_ready(upipe);
 
@@ -177,26 +201,47 @@ static struct upipe *upipe_sdl2_sink_alloc(struct upipe_mgr *mgr,
     }
     sdl2_sink->gl = SDL_GL_CreateContext(sdl2_sink->window);
 
+    upipe_notice_va(upipe, "OpenGL version %s", glGetString(GL_VERSION));
+    upipe_notice_va(upipe, "OpenGL GLSL version %s",
+                    glGetString(GL_SHADING_LANGUAGE_VERSION));
+
     SDL_GL_SetSwapInterval(1);
 
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    //SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-    const char * fsh = sdl2_sink->texture_mode == TEXTURE_MODE_YUV
-        ? APP_FRAGMENT_SHADER_YCRCB
-        : APP_FRAGMENT_SHADER_RGB;
+    sdl2_sink->texture_mode = TEXTURE_MODE_YUV;
+    const char *fsh = NULL;
+    switch (sdl2_sink->texture_mode) {
+        case TEXTURE_MODE_NONE:
+            fsh = APP_FRAGMENT_SHADER_ORANGE;
+            break;
+        case TEXTURE_MODE_RGB565:
+        case TEXTURE_MODE_RGB24:
+            fsh = APP_FRAGMENT_SHADER_RGB;
+            break;
+        case TEXTURE_MODE_YUV:
+            fsh = APP_FRAGMENT_SHADER_YUV;
+            break;
+    }
+    if (unlikely(!fsh)) {
+        upipe_release(upipe);
+        return NULL;
+    }
 
-    sdl2_sink->fragment_shader =
+    GLuint vertex_shader =
         upipe_sdl2_sink_compile_shader(upipe, GL_FRAGMENT_SHADER, fsh);
-    sdl2_sink->vertex_shader =
+    GLuint fragment_shader =
         upipe_sdl2_sink_compile_shader(upipe, GL_VERTEX_SHADER,
                                        APP_VERTEX_SHADER);
 
     sdl2_sink->shader_program = glCreateProgram();
-    glAttachShader(sdl2_sink->shader_program, sdl2_sink->vertex_shader);
-    glAttachShader(sdl2_sink->shader_program, sdl2_sink->fragment_shader);
+    glAttachShader(sdl2_sink->shader_program, vertex_shader);
+    glAttachShader(sdl2_sink->shader_program, fragment_shader);
     glLinkProgram(sdl2_sink->shader_program);
     glUseProgram(sdl2_sink->shader_program);
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
 
     if (sdl2_sink->texture_mode == TEXTURE_MODE_YUV) {
         sdl2_sink->y = upipe_sdl2_sink_create_texture(upipe, 0, "texture_y");
@@ -207,7 +252,6 @@ static struct upipe *upipe_sdl2_sink_alloc(struct upipe_mgr *mgr,
         sdl2_sink->rgb = upipe_sdl2_sink_create_texture(upipe, 0, "texture_rgb");
     }
 
-    glBindFramebuffer(0, GL_FRAMEBUFFER);
     return upipe;
 }
 
@@ -215,12 +259,15 @@ static void upipe_sdl2_sink_free(struct upipe *upipe)
 {
     struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
 
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&sdl2_sink->list))) {
+        upipe_dbg(upipe, "deleting buffered item");
+        uref_free(uref_from_uchain(uchain));
+    }
     upipe_throw_dead(upipe);
 
-    if (sdl2_sink->last)
-        uref_free(sdl2_sink->last);
-    if (sdl2_sink->current)
-        uref_free(sdl2_sink->current);
+    upipe_sdl2_sink_clean_uclock(upipe);
+    upipe_sdl2_sink_clean_timer(upipe);
     upipe_sdl2_sink_clean_idler(upipe);
     upipe_sdl2_sink_clean_upump_mgr(upipe);
     upipe_sdl2_sink_clean_urefcount(upipe);
@@ -228,60 +275,25 @@ static void upipe_sdl2_sink_free(struct upipe *upipe)
     upipe_sdl2_sink_free_void(upipe);
 }
 
-static void upipe_sdl2_sink_update_texture(struct upipe *upipe,
-                                           GLuint unit,
-                                           GLuint texture,
-                                           const uint8_t *plane)
+static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
 {
     struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
+    size_t width;
+    size_t height;
 
-    glActiveTexture(unit);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_LUMINANCE,
-        sdl2_sink->width, sdl2_sink->height, 0,
-        GL_LUMINANCE, GL_UNSIGNED_BYTE, plane);
-}
-
-/** @This loads a uref picture into the specified texture
- * @param uref uref structure describing the picture
- * @param texture GL texture
- * @return false in case of error
- */
-static bool upipe_gl_texture_load_uref(struct uref *uref, GLuint texture)
-{
-    const uint8_t *data = NULL;
-    bool rgb565 = false;
-    size_t width, height, stride;
-    uint8_t msize;
-    uref_pic_size(uref, &width, &height, NULL);
-    if (!ubase_check(uref_pic_plane_read(uref, "r8g8b8", 0, 0, -1, -1,
-                                         &data)) ||
-        !ubase_check(uref_pic_plane_size(uref, "r8g8b8", &stride,
-                                         NULL, NULL, &msize))) {
-        if (!ubase_check(uref_pic_plane_read(uref, "r5g6b5", 0, 0, -1, -1,
-                                             &data)) ||
-            !ubase_check(uref_pic_plane_size(uref, "r5g6b5", &stride,
-                                             NULL, NULL, &msize))) {
-            return false;
-        }
-        rgb565 = true;
+    if (unlikely(!ubase_check(uref_pic_size(uref, &width, &height, NULL)))) {
+        upipe_warn(upipe, "fail to get picture size");
+        uref_free(uref);
+        return;
     }
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, stride / msize);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, rgb565 ? 2 : 4);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
-            rgb565 ? GL_UNSIGNED_SHORT_5_6_5 : GL_UNSIGNED_BYTE, data);
-    uref_pic_plane_unmap(uref, rgb565 ? "r5g6b5" : "r8g8b8", 0, 0, -1, -1);
 
-    return true;
-}
-static void upipe_sdl2_sink_input(struct upipe *upipe,
-                                  struct uref *uref,
-                                  struct upump **upump_p)
-{
-    struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
 
+    // clear and draw quad with texture (could be in display callback)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+
+#if 1
     switch (sdl2_sink->texture_mode) {
         case TEXTURE_MODE_NONE:
             upipe_warn(upipe, "no texture mode set, dropping...");
@@ -289,26 +301,76 @@ static void upipe_sdl2_sink_input(struct upipe *upipe,
             return;
 
         case TEXTURE_MODE_YUV: {
-            const uint8_t *y;
-            uref_pic_plane_read(uref, "y8", 0, 0, -1, -1, &y);
-            upipe_sdl2_sink_update_texture(upipe, GL_TEXTURE0,
-                                           sdl2_sink->y, y);
-            const uint8_t *u;
-            uref_pic_plane_read(uref, "u8", 0, 0, -1, -1, &u);
-            upipe_sdl2_sink_update_texture(upipe, GL_TEXTURE1,
-                                           sdl2_sink->u, u);
-            const uint8_t *v;
-            uref_pic_plane_read(uref, "v8", 0, 0, -1, -1, &v);
-            upipe_sdl2_sink_update_texture(upipe, GL_TEXTURE2,
-                                           sdl2_sink->v, v);
+            struct {
+                const char *name;
+                size_t width;
+                size_t height;
+                GLuint texture;
+                GLenum index;
+                const uint8_t *data;
+            } planes[] = {
+                {
+                    .name = "y8",
+                    .width = width,
+                    .height = height,
+                    .texture = sdl2_sink->y,
+                    .index = GL_TEXTURE0,
+                    .data = NULL
+                },
+                {
+                    .name = "u8",
+                    .width = width / 2,
+                    .height = height / 2,
+                    .texture = sdl2_sink->u,
+                    .index = GL_TEXTURE1,
+                    .data = NULL
+                },
+                {
+                    .name = "v8",
+                    .width = width / 2,
+                    .height = height / 2,
+                    .texture = sdl2_sink->v,
+                    .index = GL_TEXTURE2,
+                    .data = NULL
+                },
+            };
+
+            for (unsigned i = 0; i < UBASE_ARRAY_SIZE(planes); i++) {
+                int err;
+                size_t stride;
+                uint8_t msize;
+
+                err = uref_pic_plane_size(uref, planes[i].name, &stride,
+                                             NULL, NULL, &msize);
+                if (unlikely(!ubase_check(err))) {
+                    upipe_warn_va(upipe, "fail to read plane size");
+                    uref_free(uref);
+                    return;
+                }
+                err = uref_pic_plane_read(uref, planes[i].name, 0, 0,
+                                          -1, -1, &planes[i].data);
+                if (unlikely(!ubase_check(err))) {
+                    upipe_warn_va(upipe, "fail to read plane %s",
+                                  planes[i].name);
+                    uref_free(uref);
+                    return;
+                }
+                glActiveTexture(planes[i].index);
+                glPixelStorei(GL_UNPACK_ROW_LENGTH, stride / msize);
+                glBindTexture(GL_TEXTURE_2D, planes[i].texture);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
+                             planes[i].width, planes[i].height, 0,
+                             GL_LUMINANCE, GL_UNSIGNED_BYTE, planes[i].data);
+                uref_pic_plane_unmap(uref, planes[i].name, 0, 0, -1, -1);
+            }
+
             break;
         }
 
         case TEXTURE_MODE_RGB565: {
             const uint8_t *rgb;
-            size_t width, height, stride;
+            size_t stride;
             uint8_t msize;
-            uref_pic_size(uref, &width, &height, NULL);
             ubase_assert(uref_pic_plane_read(uref, "r5g6b5",
                                              0, 0, -1, -1, &rgb));
             ubase_assert(uref_pic_plane_size(uref, "r5g6b5", &stride,
@@ -325,9 +387,8 @@ static void upipe_sdl2_sink_input(struct upipe *upipe,
 
         case TEXTURE_MODE_RGB24: {
             const uint8_t *rgb;
-            size_t width, height, stride;
+            size_t stride;
             uint8_t msize;
-            uref_pic_size(uref, &width, &height, NULL);
             ubase_assert(uref_pic_plane_read(uref, "r8g8b8",
                                              0, 0, -1, -1, &rgb));
             ubase_assert(uref_pic_plane_size(uref, "r8g8b8", &stride,
@@ -342,51 +403,192 @@ static void upipe_sdl2_sink_input(struct upipe *upipe,
             break;
         }
     }
+#else
+    uref_free(uref);
+#endif
 
+#if 1
     float scale = 1;
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_TEXTURE_2D);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
-    glBindTexture(GL_TEXTURE_2D, sdl2_sink->rgb);
-    glLoadIdentity();
-    glTranslatef(0, 0, -10);
+
+    size_t w = 0, h = 0;
+    uref_pic_size(uref, &w, &h, NULL);
+    scale = (float)w / (float)h;
 
     // Main movie "display"
     glPushMatrix();
-    glScalef(scale, 1, 1);
+    //glScalef(scale, 1, 1);
     glBegin(GL_QUADS);
     {
-        glTexCoord2f(0, 1); glVertex3f(-2, -2,  -4);
-        glTexCoord2f(0, 0); glVertex3f(-2,  2,  -4);
-        glTexCoord2f(1, 0); glVertex3f( 2,  2,  -4);
-        glTexCoord2f(1, 1); glVertex3f( 2, -2,  -4);
+        glVertex3f(-1, -1, 0);
+        glVertex3f(-1,  1, 0);
+        glVertex3f( 1,  1, 0);
+        glVertex3f( 1, -1, 0);
+    }
+    glBegin(GL_QUADS);
+    {
+        glTexCoord2f(0, 1);
+        glTexCoord2f(0, 0);
+        glTexCoord2f(1, 0);
+        glTexCoord2f(1, 1);
     }
     glEnd();
     glPopMatrix();
-    glDisable(GL_TEXTURE_2D);
+#else
+    float vertices[] = {
+        0.0, 0.0, 0.0,
+        1.0, 0.0, 0.0,
+        1.0, 1.0, 0.0,
+        0.0, 1.0, 0.0,
+    };
+
+    GLuint VBO;
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);  
+
+    GLuint VAO;
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindVertexArray(VAO);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDrawArrays(GL_TRIANGLES, 2, 3);
+#endif
+   
     SDL_GL_SwapWindow(sdl2_sink->window);
+}
+
+static void upipe_sdl2_sink_check_input(struct upipe *upipe)
+{
+    struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
+
+    if (sdl2_sink->timer)
+        /* already pending */
+        return;
+
+    struct uchain *uchain = ulist_pop(&sdl2_sink->list);
+    if (!uchain)
+        /* no buffer */
+        return;
+
+    bool is_last = ulist_empty(&sdl2_sink->list);
+
+    struct uref *uref = uref_from_uchain(uchain);
+    uint64_t pts;
+    if (unlikely(!ubase_check(uref_clock_get_pts_sys(uref, &pts)))) {
+        upipe_warn(upipe, "non-dated packet");
+        uref_free(uref);
+        goto retry;
+    }
+    pts += sdl2_sink->latency;
+
+    if (!sdl2_sink->uclock) {
+        upipe_warn(upipe, "no clock set");
+        uref_free(uref);
+        goto retry;
+    }
+
+    uint64_t now = uclock_now(sdl2_sink->uclock);
+    if (pts + UCLOCK_FREQ / 25 < now) {
+        upipe_warn(upipe, "late packet");
+        uref_free(uref);
+        goto retry;
+    }
+
+    if (pts > now) {
+        /* wait for the next buffer */
+        ulist_unshift(&sdl2_sink->list, uchain);
+        upipe_sdl2_sink_wait_timer(upipe, pts - now, upipe_sdl2_sink_timeout);
+        return;
+    }
+
+    /* renderer and retry */
+    upipe_sdl2_sink_output(upipe, uref);
+
+retry:
+    if (is_last)
+        upipe_release(upipe);
+    else
+        upipe_sdl2_sink_check_input(upipe);
+}
+
+static void upipe_sdl2_sink_input(struct upipe *upipe,
+                                  struct uref *uref,
+                                  struct upump **upump_p)
+{
+    struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
+    if (ulist_empty(&sdl2_sink->list))
+        /* make sure we output all packets */
+        upipe_use(upipe);
+    ulist_add(&sdl2_sink->list, uref_to_uchain(uref));
+    upipe_sdl2_sink_check_input(upipe);
+}
+
+static void upipe_sdl2_sink_reshape(struct upipe *upipe)
+{
+    //struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
+    //glViewport(0, 0, sdl2_sink->width, sdl2_sink->height);
+    //glMatrixMode(GL_PROJECTION);
+    //glLoadIdentity();
+    //glOrtho(0, sdl2_sink->width, 0, sdl2_sink->height, -1, 1);
+    //glMatrixMode(GL_MODELVIEW);
+}
+
+static void upipe_sdl2_sink_timeout(struct upump *timer)
+{
+    struct upipe *upipe = upump_get_opaque(timer, struct upipe *);
+    upipe_sdl2_sink_set_timer(upipe, NULL);
+    return upipe_sdl2_sink_check_input(upipe);
+}
+
+static void upipe_sdl2_sink_update_window(struct upipe *upipe,
+                                          int width, int height)
+{
+    upipe_notice_va( upipe, "Window resized to %dx%d", width, height);
 }
 
 static void upipe_sdl2_sink_idle(struct upump *idler)
 {
     struct upipe *upipe = upump_get_opaque(idler, struct upipe *);
-    struct upipe_sdl2_sink *sdl2_sink = upipe_sdl2_sink_from_upipe(upipe);
-
-    fprintf(stderr, "IDLE...\n");
 
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_QUIT || (ev.type == SDL_KEYUP && ev.key.keysym.sym == SDLK_ESCAPE)
-		) {
-			//self->wants_to_quit = true;
-                        exit(1);
-		}
+        switch (ev.type) {
+            case SDL_QUIT:
+                //FIXME: throw probe
+                exit(1);
+                break;
 
-        if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-            //glViewport(0, 0, ev.window.data1, ev.window.data2);
+            case SDL_KEYUP:
+                switch (ev.key.keysym.sym) {
+                    case SDLK_ESCAPE:
+                        exit(1);
+                        break;
+                }
+                break;
+
+            case SDL_WINDOWEVENT:
+                switch (ev.window.event) {
+                    case SDL_WINDOWEVENT_RESIZED:
+                        upipe_sdl2_sink_update_window(upipe,
+                                                      ev.window.data1,
+                                                      ev.window.data2);
+                        break;
+                    case SDL_WINDOWEVENT_SIZE_CHANGED:
+                        upipe_notice_va(
+                            upipe, "Window %d size changed to %dx%d",
+                            ev.window.windowID, ev.window.data1,
+                            ev.window.data2);
+                        break;
+                }
+                break;
         }
     }
-
 }
 
 static int upipe_sdl2_sink_set_flow_def(struct upipe *upipe,
@@ -399,7 +601,6 @@ static int upipe_sdl2_sink_set_flow_def(struct upipe *upipe,
 
     if (CHECK_FORMAT(flow_def, uref_pic_flow_format_rgb565)) {
         sdl2_sink->texture_mode = TEXTURE_MODE_RGB565;
-        
     }
     else if (CHECK_FORMAT(flow_def, uref_pic_flow_format_rgb24)) {
         sdl2_sink->texture_mode = TEXTURE_MODE_RGB24;
@@ -422,7 +623,11 @@ static int upipe_sdl2_sink_set_flow_def(struct upipe *upipe,
     sdl2_sink->width = hsize;
     sdl2_sink->height = vsize;
 
-    glViewport(0, 0, hsize, vsize);
+    upipe_sdl2_sink_reshape(upipe);
+    SDL_SetWindowSize(sdl2_sink->window, hsize, vsize);
+    sdl2_sink->latency = 0;
+    uref_clock_get_latency(flow_def, &sdl2_sink->latency);
+
     return UBASE_ERR_NONE;
 }
 
@@ -434,6 +639,11 @@ static int upipe_sdl2_sink_control_real(struct upipe *upipe,
         case UPIPE_ATTACH_UPUMP_MGR:
             upipe_sdl2_sink_set_idler(upipe, NULL);
             return upipe_sdl2_sink_attach_upump_mgr(upipe);
+
+        case UPIPE_ATTACH_UCLOCK:
+            upipe_sdl2_sink_set_idler(upipe, NULL);
+            upipe_sdl2_sink_require_uclock(upipe);
+            return UBASE_ERR_NONE;
 
         case UPIPE_SET_FLOW_DEF: {
             struct uref *flow_def = va_arg(args, struct uref *);
@@ -452,19 +662,15 @@ static int upipe_sdl2_sink_check(struct upipe *upipe)
         return UBASE_ERR_NONE;
 
     if (unlikely(!sdl2_sink->idler)) {
-//        struct upump *idler = upump_alloc_idler(sdl2_sink->upump_mgr,
-//                                                upipe_sdl2_sink_idle, upipe,
-//                                                upipe->refcount);
         struct upump *idler = upump_alloc_timer(sdl2_sink->upump_mgr,
                                                 upipe_sdl2_sink_idle,
                                                 upipe, upipe->refcount,
-                                                UCLOCK_FREQ, UCLOCK_FREQ / 10);
+                                                UCLOCK_FREQ, UCLOCK_FREQ / 100);
         if (unlikely(!idler))
             return UBASE_ERR_UPUMP;
 
         upump_start(idler);
         sdl2_sink->idler = idler;
-        fprintf(stderr, "set idler\n");
     }
 
     return UBASE_ERR_NONE;
@@ -492,8 +698,11 @@ struct upipe_mgr *upipe_sdl2_sink_mgr_alloc(void)
     mgr->upipe_input = upipe_sdl2_sink_input;
     mgr->upipe_control = upipe_sdl2_sink_control;
 
-    SDL_Init(SDL_INIT_EVERYTHING);
-
+    SDL_Init(SDL_INIT_VIDEO);
+//    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+//    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+//    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+//                        SDL_GL_CONTEXT_PROFILE_CORE);
     return mgr;
 }
 

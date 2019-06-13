@@ -110,6 +110,12 @@ AM_PATH_LIBGCRYPT([],
         AC_DEFINE(HAVE_GCRYPT, 1, Define if libgcrypt is available.),
         AM_CONDITIONAL(HAVE_GCRYPT, false))
 
+# Check for SDL2
+AM_PATH_SDL2([],
+        AM_CONDITIONAL(HAVE_SDL2, true)
+        AC_DEFINE(HAVE_SDL2, 1, Define if SDL2 is available.),
+        AM_CONDITIONAL(HAVE_SDL2, false))
+
 # Check for header, then libev3 (ev_loop), then libev4 (ev_run)
 AC_CHECK_HEADERS([ev.h], [
         AC_CHECK_LIB(ev, ev_loop,
@@ -129,6 +135,7 @@ PKG_CHECK_UPIPE(AVFORMAT, [libavformat >= 53.32.0 libavcodec libavutil], [libavf
 PKG_CHECK_UPIPE(SWSCALE, libswscale >= 2.1.0 libavutil, [libswscale/swscale.h libavutil/avutil.h])
 PKG_CHECK_UPIPE(SWRESAMPLE, libswresample libavutil, [libswresample/swresample.h libavutil/avutil.h])
 PKG_CHECK_UPIPE(SPEEXDSP, speexdsp, [speex/speex_resampler.h])
+PKG_CHECK_UPIPE(GL, gl, [GL/gl.h])
 PKG_CHECK_UPIPE(GLX, gl glu x11, [GL/glx.h GL/glu.h GL/gl.h])
 PKG_CHECK_UPIPE(X264, x264, [x264.h])
 PKG_CHECK_UPIPE(X265, x265, [x265.h])
@@ -175,7 +182,6 @@ AC_CHECK_HEADERS([dlfcn.h], AM_CONDITIONAL(HAVE_DLFCN_H, true), AM_CONDITIONAL(H
 AC_CHECK_HEADERS([amt.h], AM_CONDITIONAL(HAVE_AMT, true), AM_CONDITIONAL(HAVE_AMT, false))
 AC_CHECK_HEADERS([net/netmap.h], AM_CONDITIONAL(HAVE_NETMAP, true), AM_CONDITIONAL(HAVE_NETMAP, false),[#include <stdint.h>
 #include <net/if.h>])
-AC_CHECK_HEADERS([SDL2/SDL.h], AM_CONDITIONAL(HAVE_SDL2, true), AM_CONDITIONAL(HAVE_SDL2, false))
 
 # Checks for header files.
 AC_HEADER_STDC

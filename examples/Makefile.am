@@ -18,6 +18,7 @@ UPIPEBMD_LIBS = $(top_builddir)/lib/upipe-blackmagic/libupipe_blackmagic.la -lst
 UPIPEOSX_LIBS = $(top_builddir)/lib/upipe-osx/libupipe_osx.la
 UPIPEDVBCSA_LIBS = $(top_builddir)/lib/upipe-dvbcsa/libupipe_dvbcsa.la
 UPIPEDVB_LIBS = $(top_builddir)/lib/upipe-dvb/libupipe_dvb.la
+UPIPESDL2_LIBS = $(top_builddir)/lib/upipe-sdl2/libupipe_sdl2.la
 
 noinst_PROGRAMS = 
 
@@ -31,7 +32,7 @@ hls2rtp_LDADD= $(LDADD) $(UPUMPEV_LIBS) $(UPIPEMODULES_LIBS) $(UPIPEFRAMERS_LIBS
 hls2rtp_CFLAGS= -fno-strict-aliasing
 glxplay_CFLAGS = $(SWSCALE_CFLAGS)
 glxplay_LDADD = $(LDADD) $(UPUMPEV_LIBS) $(UPIPEMODULES_LIBS) $(UPIPEPTHREAD_LIBS) $(UPIPESWS_LIBS) $(UPIPEAV_LIBS) $(UPIPEGL_LIBS) $(UPIPEFILTERS_LIBS) $(UPIPEFRAMERS_LIBS) $(UPIPETS_LIBS) -lpthread
-uplay_LDADD = $(LDADD) $(UPUMPEV_LIBS) $(UPIPEMODULES_LIBS) $(UPIPEPTHREAD_LIBS) $(UPIPESWS_LIBS) $(UPIPESWR_LIBS) $(UPIPEAV_LIBS) $(UPIPEGL_LIBS) $(UPIPEFILTERS_LIBS) $(UPIPEFRAMERS_LIBS) $(UPIPETS_LIBS) -lpthread
+uplay_LDADD = $(LDADD) $(UPUMPEV_LIBS) $(UPIPEMODULES_LIBS) $(UPIPEPTHREAD_LIBS) $(UPIPESWS_LIBS) $(UPIPESWR_LIBS) $(UPIPEAV_LIBS) $(UPIPEGL_LIBS) $(UPIPEFILTERS_LIBS) $(UPIPEFRAMERS_LIBS) $(UPIPETS_LIBS) $(UPIPESDL2_LIBS) -lpthread
 dvbsrc_LDADD = $(LDADD) $(UPUMPEV_LIBS) $(UPIPEMODULES_LIBS) $(UPIPEPTHREAD_LIBS) $(UPIPEDVB_LIBS) -lpthread
 if HAVE_ALSA
 uplay_LDADD += $(UPIPEALSA_LIBS)

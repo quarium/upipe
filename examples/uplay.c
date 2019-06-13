@@ -92,6 +92,7 @@
 #elif defined(UPIPE_HAVE_AUDIOTOOLBOX_AUDIOTOOLBOX_H)
 #include <upipe-osx/upipe_osx_audioqueue_sink.h>
 #endif
+#include <upipe-sdl2/upipe_sdl2_sink.h>
 
 #include <pthread.h>
 
@@ -164,6 +165,8 @@ static unsigned w = 0;
 static unsigned h = 0;
 /* upipe dump file */
 static const char *dump = NULL;
+/* use SDL2 sink? */
+static bool sdl2_sink = false;
 
 static void uplay_stop(struct upump *upump);
 
@@ -366,7 +369,13 @@ static int catch_video(struct uprobe *uprobe, struct upipe *upipe,
     struct uref *uref = uref_sibling_alloc(flow_def);
     uref_flow_set_def(uref, "pic.");
     /* request rgb16 as swscale conversion is faster than rgb24 */
-    uref_pic_flow_add_plane(uref, 1, 1, 2, "r5g6b5");
+    if (!sdl2_sink)
+        uref_pic_flow_add_plane(uref, 1, 1, 2, "r5g6b5");
+    else {
+        uref_pic_flow_add_plane(uref, 1, 1, 1, "y8");
+        uref_pic_flow_add_plane(uref, 2, 2, 1, "u8");
+        uref_pic_flow_add_plane(uref, 2, 2, 1, "v8");
+    }
 
     if (w && h) {
         uref_pic_flow_set_hsize(uref, w);
@@ -392,27 +401,39 @@ static int catch_video(struct uprobe *uprobe, struct upipe *upipe,
             uprobe_pfx_alloc(uprobe_use(uprobe_main),
                              UPROBE_LOG_VERBOSE, "play video"));
 
-    struct upipe_mgr *upipe_glx_mgr = upipe_glx_sink_mgr_alloc();
-    if (cube) {
-        upipe = upipe_void_chain_output(
-                    upipe, upipe_glx_mgr,
-                    uprobe_gl_sink_alloc(
-                        uprobe_gl_sink_cube_alloc(
-                            uprobe_pfx_alloc(uprobe_use(&uprobe_glx_s),
-                                             UPROBE_LOG_VERBOSE, "glx"))));
+    if (!sdl2_sink) {
+        struct upipe_mgr *upipe_glx_mgr = upipe_glx_sink_mgr_alloc();
+        if (cube) {
+            upipe = upipe_void_chain_output(
+                upipe, upipe_glx_mgr,
+                uprobe_gl_sink_alloc(
+                    uprobe_gl_sink_cube_alloc(
+                        uprobe_pfx_alloc(uprobe_use(&uprobe_glx_s),
+                                         UPROBE_LOG_VERBOSE, "glx"))));
+        }
+        else {
+            upipe = upipe_void_chain_output(
+                upipe, upipe_glx_mgr,
+                uprobe_gl_sink_alloc(
+                    uprobe_pfx_alloc(uprobe_use(&uprobe_glx_s),
+                                     UPROBE_LOG_VERBOSE, "glx")));
+        }
+        assert(upipe != NULL);
+        upipe_mgr_release(upipe_glx_mgr);
+        upipe_glx_sink_init(upipe, 0, 0, 800, 480);
     }
     else {
+        struct upipe_mgr *upipe_sdl2_sink_mgr = upipe_sdl2_sink_mgr_alloc();
+        assert(upipe_sdl2_sink_mgr);
         upipe = upipe_void_chain_output(
-                    upipe, upipe_glx_mgr,
-                    uprobe_gl_sink_alloc(
-                        uprobe_pfx_alloc(uprobe_use(&uprobe_glx_s),
-                                         UPROBE_LOG_VERBOSE, "glx")));
+            upipe, upipe_sdl2_sink_mgr,
+            uprobe_pfx_alloc(uprobe_use(uprobe_main),
+                             UPROBE_LOG_VERBOSE, "sdl2"));
+        assert(upipe);
+        upipe_mgr_release(upipe_sdl2_sink_mgr);
     }
-    assert(upipe != NULL);
-    upipe_mgr_release(upipe_glx_mgr);
-    upipe_glx_sink_init(upipe, 0, 0, 800, 480);
-    upipe_attach_uclock(upipe);
 
+    upipe_attach_uclock(upipe);
     upipe_release(upipe);
     return UBASE_ERR_NONE;
 }
@@ -700,7 +721,8 @@ static void uplay_stop(struct upump *upump)
 }
 
 static void usage(const char *argv0) {
-    fprintf(stderr, "Usage: %s [-D <dot file>] [-d] [-q] [-u] [-s 1920x1080] [-A <audio>] [-S <subtitle>] [-V <video>] [-P <program>] [-R 1:1] <source>\n", argv0);
+    fprintf(stderr, "Usage: %s [-D <dot file>] [-d] [-q] [-u] [-s 1920x1080] [-A <audio>] [-S <subtitle>] [-V <video>] [-P <program>] [-R 1:1] [-O] <source>\n", argv0);
+    fprintf(stderr, "\t-O      : Use SDL2 OpenGL sink\n");
     exit(EXIT_FAILURE);
 }
 
@@ -708,7 +730,7 @@ int main(int argc, char **argv)
 {
     enum uprobe_log_level loglevel = UPROBE_LOG_LEVEL;
     int opt;
-    while ((opt = getopt(argc, argv, "udqcA:V:S:P:R:s:D:")) != -1) {
+    while ((opt = getopt(argc, argv, "udqcA:V:S:P:R:s:D:O")) != -1) {
         switch (opt) {
             case 'u':
                 udp = true;
@@ -750,6 +772,9 @@ int main(int argc, char **argv)
                 break;
             case 'D':
                 dump = optarg;
+                break;
+            case 'O':
+                sdl2_sink = true;
                 break;
             default:
                 usage(argv[0]);
