@@ -214,8 +214,10 @@ struct upipe_mgr *upipe_pthread_xfer_mgr_alloc_named(uint8_t queue_length,
     if (unlikely(pthread_create(&pthread_ctx->pthread_id, attr,
                                 upipe_pthread_start, pthread_ctx) != 0))
         goto upipe_pthread_xfer_mgr_alloc_err5;
+#ifndef __APPLE__
     if (name != NULL)
         pthread_setname_np(pthread_ctx->pthread_id, name);
+#endif
     if (pthread_id_p != NULL)
         *pthread_id_p = pthread_ctx->pthread_id;
 
