@@ -14,6 +14,7 @@ AC_DEFUN([PKG_CHECK_UPIPE], [
                 CFLAGS="$CFLAGS_save"
                 CPPFLAGS="$CPPFLAGS_save"
                 CXXFLAGS="$CXXFLAGS_save"
+                AC_DEFINE(HAVE_$1[], 1, Define if $1 is available)
         ],[
                 AM_CONDITIONAL(HAVE_$1[], false)
         ])
