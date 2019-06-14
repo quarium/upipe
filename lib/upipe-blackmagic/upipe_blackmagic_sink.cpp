@@ -1656,7 +1656,7 @@ static int upipe_bmd_sink_set_option(struct upipe *upipe,
             BMDDisplayMode mode_id;
             char mode_s[4];
         } u;
-        strncpy(u.mode_s, v, sizeof(u.mode_s));
+        memcpy(u.mode_s, v, sizeof (u.mode_s));
         upipe_bmd_sink->selectedMode = htonl(u.mode_id);
     } else if (!strcmp(k, "cc")) {
         uatomic_store(&upipe_bmd_sink->cc, strcmp(v, "0"));
