@@ -12,11 +12,18 @@
 #include <upipe/uref_dump.h>
 #include <upipe/uclock.h>
 #include <upipe-sdl2/upipe_sdl2_sink.h>
+#include <upipe/config.h>
 
 #define GL_GLEXT_PROTOTYPES
 
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_opengl.h>
+#ifdef UPIPE_HAVE_GL
+# include <SDL2/SDL_opengl.h>
+#elif defined(UPIPE_HAVE_GLESV2)
+# include <SDL2/SDL_opengles2.h>
+#else
+# error "No OpenGL support"
+#endif
 #include <limits.h>
 
 #define APP_SHADER_SOURCE(...) #__VA_ARGS__;
@@ -61,8 +68,8 @@ const char * const APP_FRAGMENT_SHADER_YUV = APP_SHADER_SOURCE(
         float u = texture2D(texture_u, tex_coord).r;
         float v = texture2D(texture_v, tex_coord).r;
 
-            //gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-            gl_FragColor = vec4(y, u, v, 1.0) * rec601;
+        //gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        gl_FragColor = vec4(y, u, v, 1.0) * rec601;
     }
 );
 
@@ -407,7 +414,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
     uref_free(uref);
 #endif
 
-#if 1
+#if 0
     float scale = 1;
 
     size_t w = 0, h = 0;
@@ -424,6 +431,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
         glVertex3f( 1,  1, 0);
         glVertex3f( 1, -1, 0);
     }
+    glEnd();
     glBegin(GL_QUADS);
     {
         glTexCoord2f(0, 1);
@@ -449,15 +457,16 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
     glEnableVertexAttribArray(0);  
 
     GLuint VAO;
-    glGenVertexArrays(1, &VAO);
-    glBindVertexArray(VAO);
+    //glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VAO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VAO);
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    glDrawArrays(GL_TRIANGLES, 2, 3);
+    //glDrawArrays(GL_TRIANGLES, 2, 3);
 #endif
    
     SDL_GL_SwapWindow(sdl2_sink->window);

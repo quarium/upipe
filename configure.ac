@@ -136,6 +136,7 @@ PKG_CHECK_UPIPE(SWSCALE, libswscale >= 2.1.0 libavutil, [libswscale/swscale.h li
 PKG_CHECK_UPIPE(SWRESAMPLE, libswresample libavutil, [libswresample/swresample.h libavutil/avutil.h])
 PKG_CHECK_UPIPE(SPEEXDSP, speexdsp, [speex/speex_resampler.h])
 PKG_CHECK_UPIPE(GL, gl, [GL/gl.h])
+PKG_CHECK_UPIPE(GLESV2, glesv2, [GL/gl.h])
 PKG_CHECK_UPIPE(GLX, gl glu x11, [GL/glx.h GL/glu.h GL/gl.h])
 PKG_CHECK_UPIPE(X264, x264, [x264.h])
 PKG_CHECK_UPIPE(X265, x265, [x265.h])
