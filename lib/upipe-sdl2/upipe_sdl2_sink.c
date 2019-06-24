@@ -17,9 +17,7 @@
 #define GL_GLEXT_PROTOTYPES
 
 #include <SDL2/SDL.h>
-#ifdef UPIPE_HAVE_GL
-# include <SDL2/SDL_opengl.h>
-#elif defined(UPIPE_HAVE_GLESV2)
+#if defined(UPIPE_HAVE_GLESV2)
 # include <SDL2/SDL_opengles2.h>
 #else
 # error "No OpenGL support"
@@ -30,6 +28,7 @@
 
 #if 1
 const char * const APP_VERTEX_SHADER = APP_SHADER_SOURCE(
+    precision highp float;
     attribute vec2 vertex;
     varying vec2 tex_coord;
 
@@ -50,6 +49,7 @@ const char * const APP_VERTEX_SHADER = APP_SHADER_SOURCE(
 #endif
 
 const char * const APP_FRAGMENT_SHADER_YUV = APP_SHADER_SOURCE(
+    precision highp float;
     uniform sampler2D texture_y;
     uniform sampler2D texture_u;
     uniform sampler2D texture_v;
@@ -74,6 +74,7 @@ const char * const APP_FRAGMENT_SHADER_YUV = APP_SHADER_SOURCE(
 );
 
 const char * const APP_FRAGMENT_SHADER_RGB = APP_SHADER_SOURCE(
+    precision highp float;
     uniform sampler2D texture_rgb;
     varying vec2 tex_coord;
 
@@ -84,6 +85,7 @@ const char * const APP_FRAGMENT_SHADER_RGB = APP_SHADER_SOURCE(
 
 
 const char *const APP_FRAGMENT_SHADER_ORANGE = APP_SHADER_SOURCE(
+    precision highp float;
     void main() {
         gl_FragColor = vec4(1.0, 0.5, 0.2, 1.0);
     }
@@ -149,8 +151,8 @@ static GLuint upipe_sdl2_sink_create_texture(struct upipe *upipe,
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER_NV);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER_NV);
 
     glUniform1i(glGetUniformLocation(sdl2_sink->shader_program, name), index);
     return texture;
@@ -298,7 +300,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
     // clear and draw quad with texture (could be in display callback)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_TEXTURE_2D);
-    glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+    //glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
 
 #if 1
     switch (sdl2_sink->texture_mode) {
@@ -363,7 +365,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
                     return;
                 }
                 glActiveTexture(planes[i].index);
-                glPixelStorei(GL_UNPACK_ROW_LENGTH, stride / msize);
+                glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, stride / msize);
                 glBindTexture(GL_TEXTURE_2D, planes[i].texture);
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
                              planes[i].width, planes[i].height, 0,
@@ -382,7 +384,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
                                              0, 0, -1, -1, &rgb));
             ubase_assert(uref_pic_plane_size(uref, "r5g6b5", &stride,
                                              NULL, NULL, &msize));
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, stride / msize);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, stride / msize);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
             glBindTexture(GL_TEXTURE_2D, sdl2_sink->rgb);
             glTexImage2D(
@@ -400,7 +402,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
                                              0, 0, -1, -1, &rgb));
             ubase_assert(uref_pic_plane_size(uref, "r8g8b8", &stride,
                                              NULL, NULL, &msize));
-            glPixelStorei(GL_UNPACK_ROW_LENGTH, stride / msize);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH_EXT, stride / msize);
             glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
             glBindTexture(GL_TEXTURE_2D, sdl2_sink->rgb);
             glTexImage2D(
@@ -410,9 +412,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
             break;
         }
     }
-#else
     uref_free(uref);
-#endif
 
 #if 0
     float scale = 1;
@@ -466,7 +466,7 @@ static void upipe_sdl2_sink_output(struct upipe *upipe, struct uref *uref)
 
     glBindBuffer(GL_ARRAY_BUFFER, VAO);
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    //glDrawArrays(GL_TRIANGLES, 2, 3);
+    glDrawArrays(GL_TRIANGLES, 2, 3);
 #endif
    
     SDL_GL_SwapWindow(sdl2_sink->window);

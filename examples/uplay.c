@@ -33,6 +33,8 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include <upipe/config.h>
+#undef UPIPE_HAVE_GLX_H_
 #include <upipe/uprobe.h>
 #include <upipe/uprobe_stdio.h>
 #include <upipe/uprobe_prefix.h>
@@ -84,9 +86,11 @@
 #include <upipe-av/upipe_avcodec_decode.h>
 #include <upipe-swscale/upipe_sws.h>
 #include <upipe-swresample/upipe_swr.h>
+#ifdef UPIPE_HAVE_GLX_H_
 #include <upipe-gl/upipe_glx_sink.h>
 #include <upipe-gl/uprobe_gl_sink.h>
 #include <upipe-gl/uprobe_gl_sink_cube.h>
+#endif
 #ifdef UPIPE_HAVE_ALSA_ASOUNDLIB_H
 #include <upipe-alsa/upipe_alsa_sink.h>
 #elif defined(UPIPE_HAVE_AUDIOTOOLBOX_AUDIOTOOLBOX_H)
@@ -95,6 +99,7 @@
 #include <upipe-sdl2/upipe_sdl2_sink.h>
 
 #include <pthread.h>
+
 
 #define UPROBE_LOG_LEVEL UPROBE_LOG_DEBUG
 #define UMEM_POOL               512
@@ -142,8 +147,10 @@ static struct uprobe uprobe_uref_s;
 static struct uprobe uprobe_sub_s;
 /* probe for demux audio subpipe */
 static struct uprobe uprobe_audio_s;
+#ifdef UPIPE_HAVE_GLX_H_
 /* probe for glx sink */
 static struct uprobe uprobe_glx_s;
+#endif
 /* source thread */
 static struct upipe_mgr *upipe_wsrc_mgr = NULL;
 /* decoder thread */
@@ -170,6 +177,7 @@ static bool sdl2_sink = false;
 
 static void uplay_stop(struct upump *upump);
 
+#ifdef UPIPE_HAVE_GLX_H_
 /* probe for glx sink */
 static int catch_glx(struct uprobe *uprobe, struct upipe *upipe,
                      int event, va_list args)
@@ -216,6 +224,7 @@ static int catch_glx(struct uprobe *uprobe, struct upipe *upipe,
     }
     return UBASE_ERR_NONE;
 }
+#endif
 
 /* probe for subtitle subpipe of demux */
 static int catch_sub(struct uprobe *uprobe, struct upipe *upipe,
@@ -401,6 +410,7 @@ static int catch_video(struct uprobe *uprobe, struct upipe *upipe,
             uprobe_pfx_alloc(uprobe_use(uprobe_main),
                              UPROBE_LOG_VERBOSE, "play video"));
 
+#ifdef UPIPE_HAVE_GLX_H_
     if (!sdl2_sink) {
         struct upipe_mgr *upipe_glx_mgr = upipe_glx_sink_mgr_alloc();
         if (cube) {
@@ -423,6 +433,7 @@ static int catch_video(struct uprobe *uprobe, struct upipe *upipe,
         upipe_glx_sink_init(upipe, 0, 0, 800, 480);
     }
     else {
+#endif
         struct upipe_mgr *upipe_sdl2_sink_mgr = upipe_sdl2_sink_mgr_alloc();
         assert(upipe_sdl2_sink_mgr);
         upipe = upipe_void_chain_output(
@@ -431,7 +442,9 @@ static int catch_video(struct uprobe *uprobe, struct upipe *upipe,
                              UPROBE_LOG_VERBOSE, "sdl2"));
         assert(upipe);
         upipe_mgr_release(upipe_sdl2_sink_mgr);
+#ifdef UPIPE_HAVE_GLX_H_
     }
+#endif
 
     upipe_attach_uclock(upipe);
     upipe_release(upipe);
@@ -821,7 +834,9 @@ int main(int argc, char **argv)
     uprobe_init(&uprobe_video_s, catch_video, uprobe_use(uprobe_dejitter));
     uprobe_init(&uprobe_audio_s, catch_audio, uprobe_use(uprobe_dejitter));
     uprobe_init(&uprobe_uref_s, catch_uref, uprobe_use(uprobe_main));
+#ifdef UPIPE_HAVE_GLX_H_
     uprobe_init(&uprobe_glx_s, catch_glx, uprobe_use(uprobe_main));
+#endif
 
     /* upipe-av */
     if (unlikely(!upipe_av_init(false,
@@ -879,7 +894,9 @@ int main(int argc, char **argv)
     uprobe_clean(&uprobe_uref_s);
     uprobe_clean(&uprobe_sub_s);
     uprobe_clean(&uprobe_audio_s);
+#ifdef UPIPE_HAVE_GLX_H_
     uprobe_clean(&uprobe_glx_s);
+#endif
 
     upipe_av_clean();
 
