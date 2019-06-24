@@ -87,4 +87,7 @@ myinclude_HEADERS = \
 	upipe_separate_fields.h \
 	upipe_row_join.h \
 	upipe_discard_blocking.h \
+	uref_graph_flow.h \
+	uref_graph.h \
+	upipe_graph.h \
 	$(NULL)
