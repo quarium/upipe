@@ -127,6 +127,8 @@ struct upipe_blit_sub {
     uint64_t toffset;
     /** configured offset from the bottom border */
     uint64_t boffset;
+    /** use percent instead of absolut value */
+    bool percent;
 
     /** rounded offset from the left border */
     uint64_t loffset_r;
@@ -185,6 +187,7 @@ static struct upipe *upipe_blit_sub_alloc(struct upipe_mgr *mgr,
     sub->alpha = 0xff; /* opaque */
     sub->alpha_threshold = 0; /* ignore alpha */
     sub->z_index = 0;
+    sub->percent = false;
     sub->loffset = sub->roffset = sub->toffset = sub->boffset = 0;
     sub->loffset_r = sub->roffset_r = sub->toffset_r = sub->boffset_r = 0;
     sub->ubuf = NULL;
@@ -270,16 +273,28 @@ static int upipe_blit_sub_provide_flow_format(struct upipe *upipe)
     struct upipe_blit_sub *sub = upipe_blit_sub_from_upipe(upipe);
     /* Round parameters */
     uint8_t hround = upipe_blit->hsub * upipe_blit->macropixel;
-    sub->loffset_r = sub->loffset;
-    sub->roffset_r = sub->roffset;
+    if (sub->percent) {
+        sub->loffset_r = sub->loffset * upipe_blit->hsize / 100;
+        sub->roffset_r = sub->roffset * upipe_blit->hsize / 100;
+    }
+    else {
+        sub->loffset_r = sub->loffset;
+        sub->roffset_r = sub->roffset;
+    }
     if (hround > 1) {
         sub->loffset_r -= sub->loffset_r % hround;
         sub->roffset_r -= sub->roffset_r % hround;
     }
 
     uint8_t vround = upipe_blit->vsub;
-    sub->toffset_r = sub->toffset;
-    sub->boffset_r = sub->boffset;
+    if (sub->percent) {
+        sub->toffset_r = sub->toffset * upipe_blit->vsize / 100;
+        sub->boffset_r = sub->boffset * upipe_blit->vsize / 100;
+    }
+    else {
+        sub->toffset_r = sub->toffset;
+        sub->boffset_r = sub->boffset;
+    }
     if (vround > 1) {
         sub->toffset_r -= sub->toffset_r % vround;
         sub->boffset_r -= sub->boffset_r % vround;
@@ -532,6 +547,31 @@ static int _upipe_blit_sub_set_rect(struct upipe *upipe,
     sub->roffset = roffset;
     sub->toffset = toffset;
     sub->boffset = boffset;
+    sub->percent = false;
+    upipe_blit_sub_provide_flow_format(upipe);
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the offsets (from the respective borders of the frame)
+ * of the rectangle onto which the input of the subpipe will be blitted in
+ * percent.
+ *
+ * @param upipe description structure of the pipe
+ * @param loffset offset from the left border
+ * @param roffset offset from the right border
+ * @param toffset offset from the top border
+ * @param boffset offset from the bottom border
+ * @return an error code
+ */
+static int _upipe_blit_sub_set_margin(struct upipe *upipe,
+        uint64_t loffset, uint64_t roffset, uint64_t toffset, uint64_t boffset)
+{
+    struct upipe_blit_sub *sub = upipe_blit_sub_from_upipe(upipe);
+    sub->loffset = loffset;
+    sub->roffset = roffset;
+    sub->toffset = toffset;
+    sub->boffset = boffset;
+    sub->percent = true;
     upipe_blit_sub_provide_flow_format(upipe);
     return UBASE_ERR_NONE;
 }
@@ -691,6 +731,15 @@ static int upipe_blit_sub_control(struct upipe *upipe,
             uint64_t toffset = va_arg(args, uint64_t);
             uint64_t boffset = va_arg(args, uint64_t);
             return _upipe_blit_sub_set_rect(upipe,
+                    loffset, roffset, toffset, boffset);
+        }
+        case UPIPE_BLIT_SUB_SET_MARGIN: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_BLIT_SUB_SIGNATURE);
+            uint64_t loffset = va_arg(args, uint64_t);
+            uint64_t roffset = va_arg(args, uint64_t);
+            uint64_t toffset = va_arg(args, uint64_t);
+            uint64_t boffset = va_arg(args, uint64_t);
+            return _upipe_blit_sub_set_margin(upipe,
                     loffset, roffset, toffset, boffset);
         }
         case UPIPE_BLIT_SUB_GET_ALPHA: {

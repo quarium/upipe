@@ -75,6 +75,9 @@ enum upipe_blit_sub_command {
     /** sets the offsets of the rect onto which the input of this subpipe
      * will be blitted (uint64_t, uint64_t, uint64_t, uint64_t) */
     UPIPE_BLIT_SUB_SET_RECT,
+    /** sets the margins of the rect onto which the input of this subpipe
+     * will be blitted (uint64_t, uint64_t, uint64_t, uint64_t) */
+    UPIPE_BLIT_SUB_SET_MARGIN,
     /** gets the alpha channel multiplier (uint8_t *) */
     UPIPE_BLIT_SUB_GET_ALPHA,
     /** sets the alpha channel multiplier (uint8_t) */
@@ -137,6 +140,24 @@ static inline int upipe_blit_sub_set_rect(struct upipe *upipe,
         uint64_t loffset, uint64_t roffset, uint64_t toffset, uint64_t boffset)
 {
     return upipe_control(upipe, UPIPE_BLIT_SUB_SET_RECT,
+                         UPIPE_BLIT_SUB_SIGNATURE,
+                         loffset, roffset, toffset, boffset);
+}
+
+/** @This sets the margins (from the respective borders of the frame) of the
+ * rectangle onto which the input of the subpipe will be blitted.
+ *
+ * @param upipe description structure of the pipe
+ * @param loffset offset from the left border
+ * @param roffset offset from the right border
+ * @param toffset offset from the top border
+ * @param boffset offset from the bottom border
+ * @return an error code
+ */
+static inline int upipe_blit_sub_set_margin(struct upipe *upipe,
+        uint64_t loffset, uint64_t roffset, uint64_t toffset, uint64_t boffset)
+{
+    return upipe_control(upipe, UPIPE_BLIT_SUB_SET_MARGIN,
                          UPIPE_BLIT_SUB_SIGNATURE,
                          loffset, roffset, toffset, boffset);
 }
