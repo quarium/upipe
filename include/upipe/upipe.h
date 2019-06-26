@@ -1308,10 +1308,7 @@ static inline int upipe_register_request(struct upipe *upipe,
 {
     assert(!urequest->registered);
     urequest->registered = true;
-    int err = upipe_control(upipe, UPIPE_REGISTER_REQUEST, urequest);
-    if (unlikely(!ubase_check(err)))
-        urequest->registered = false;
-    return err;
+    return upipe_control(upipe, UPIPE_REGISTER_REQUEST, urequest);
 }
 
 /** @This unregisters a request.
