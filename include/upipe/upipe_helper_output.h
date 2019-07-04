@@ -420,7 +420,8 @@ static int STRUCTURE##_set_output(struct upipe *upipe, struct upipe *output)\
         struct uchain *uchain;                                              \
         ulist_foreach (&s->REQUEST_LIST, uchain) {                          \
             struct urequest *urequest = urequest_from_uchain(uchain);       \
-            upipe_unregister_request(s->OUTPUT, urequest);                  \
+            if (urequest->registered)                                       \
+                upipe_unregister_request(s->OUTPUT, urequest);              \
         }                                                                   \
     }                                                                       \
     upipe_release(s->OUTPUT);                                               \
