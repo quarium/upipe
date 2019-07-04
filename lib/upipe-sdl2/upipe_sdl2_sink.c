@@ -154,7 +154,6 @@ static struct upipe *upipe_sdl2_sink_alloc(struct upipe_mgr *mgr,
     const char * fsh = sdl2_sink->texture_mode == TEXTURE_MODE_YUV
         ? APP_FRAGMENT_SHADER_YCRCB
         : APP_FRAGMENT_SHADER_RGB;
-                
     sdl2_sink->fragment_shader =
         upipe_sdl2_sink_compile_shader(upipe, GL_FRAGMENT_SHADER, fsh);
     sdl2_sink->vertex_shader =
