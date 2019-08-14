@@ -40,6 +40,7 @@
 #include <upipe/uref_block_flow.h>
 #include <upipe/uref_pic.h>
 #include <upipe/uref_pic_flow.h>
+#include <upipe/uref_pic_flow_formats.h>
 #include <upipe/uref_sound.h>
 #include <upipe/uref_sound_flow.h>
 #include <upipe/uref_clock.h>
@@ -1120,16 +1121,8 @@ static int upipe_bmd_sink_sub_set_flow_def(struct upipe *upipe,
     }
 
     if (upipe_bmd_sink_sub == &upipe_bmd_sink->pic_subpipe) {
-        uint8_t macropixel;
-        if (!ubase_check(uref_pic_flow_get_macropixel(flow_def, &macropixel))) {
-            upipe_err(upipe, "macropixel size not set");
-            uref_dump(flow_def, upipe->uprobe);
-            return UBASE_ERR_EXTERNAL;
-        }
 
-        if (macropixel != 6 || !ubase_check(
-                             uref_pic_flow_check_chroma(flow_def, 1, 1, 16,
-                                                        "u10y10v10y10u10y10v10y10u10y10v10y10"))) {
+        if (unlikely(!ubase_check(uref_pic_flow_check_v210(flow_def)))) {
             upipe_err(upipe, "incompatible input flow def");
             uref_dump(flow_def, upipe->uprobe);
             return UBASE_ERR_EXTERNAL;
