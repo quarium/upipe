@@ -559,6 +559,17 @@ static const struct uref_pic_flow_format uref_pic_flow_format_uyvy422 = {
 
 UREF_PIC_FLOW_FORMAT_HELPER(uyvy422);
 
+/** @This is the description of the yuv 422 10 bits (v210) format. */
+static const struct uref_pic_flow_format uref_pic_flow_format_v210 = {
+    .macropixel = 6,
+    .nb_planes = 1,
+    .planes = {
+        { 1, 1, 16, "u10y10v10y10u10y10v10y10u10y10v10y10", 128 },
+    },
+};
+
+UREF_PIC_FLOW_FORMAT_HELPER(v210);
+
 /** This is the description of the gray8 format. */
 static const struct uref_pic_flow_format uref_pic_flow_format_gray8 = {
     .macropixel = 1,
