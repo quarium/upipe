@@ -68,6 +68,7 @@
 #include <bitstream/dvb/vbi.h>
 
 #include "include/DeckLinkAPI.h"
+#include "uclock_blackmagic_sink.h"
 
 extern "C" {
     #include "sdi.h"
@@ -238,6 +239,9 @@ struct upipe_bmd_sink {
 
     /** list of input subpipes */
     struct uchain inputs;
+
+    /** blackmagic sink uclock */
+    struct uclock *uclock_bmd_sink;
 
     /** lock the list of subpipes, they are iterated from the
      * decklink callback */
@@ -1385,6 +1389,7 @@ static struct upipe *upipe_bmd_sink_alloc(struct upipe_mgr *mgr,
 
     upipe_bmd_sink->uclock.refcount = upipe->refcount;
     upipe_bmd_sink->uclock.uclock_now = uclock_bmd_sink_now;
+    upipe_bmd_sink->uclock_bmd_sink = NULL;
     upipe_bmd_sink->card_idx = -1;
     upipe_bmd_sink->card_topo = -1;
     upipe_bmd_sink->opened = false;
@@ -1406,6 +1411,8 @@ static void upipe_bmd_stop(struct upipe *upipe)
     upipe_bmd_sink->cb->pts = 0; /* callback is not running anymore */
     __sync_synchronize();
 
+    uclock_release(upipe_bmd_sink->uclock_bmd_sink);
+    upipe_bmd_sink->uclock_bmd_sink = NULL;
     deckLinkOutput->StopScheduledPlayback(0, NULL, 0);
     deckLinkOutput->DisableAudioOutput();
     /* bump clock upwards before it's made unavailable by DisableVideoOutput */
@@ -1621,6 +1628,8 @@ static int upipe_bmd_sink_open_card(struct upipe *upipe)
         upipe_err(upipe, "Could not set callback");
 
     upipe_bmd_sink->deckLink = deckLink;
+    //upipe_bmd_sink->uclock_bmd_sink = uclock_bmd_sink_alloc(deckLink,
+    //                                                        (enum uclock_std_flags)0);
 
 end:
 
