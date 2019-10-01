@@ -37,6 +37,7 @@ extern "C" {
 #include <upipe/upipe.h>
 
 #define UPIPE_AVFILT_SIGNATURE UBASE_FOURCC('a', 'v', 'f', 'i')
+#define UPIPE_AVFILT_SUB_SIGNATURE UBASE_FOURCC('a', 'v', 'f', 's')
 
 /** @This extends upipe_command with specific commands for avfilt. */
 enum upipe_avfilt_command {

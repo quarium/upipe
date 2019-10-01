@@ -64,6 +64,7 @@
 #include <upipe-av/upipe_avcodec_decode.h>
 #include <upipe-av/upipe_avcodec_encode.h>
 #include <upipe-av/upipe_avfilter.h>
+#include <upipe-av/uref_avfilter_flow.h>
 #include <upipe-swresample/upipe_swr.h>
 #include <upipe-swscale/upipe_sws.h>
 #include <upipe-filters/upipe_filter_format.h>
@@ -107,6 +108,7 @@ struct upipe_mgr *upipe_ffmt_mgr;
 static struct uprobe *logger;
 static struct upipe *avfsrc;
 static struct upipe *avfsink;
+static struct upipe *avfilt;
 struct uchain eslist;
 
 static void usage(const char *argv0) {
@@ -285,19 +287,47 @@ static int catch_demux(struct uprobe *uprobe, struct upipe *upipe,
             }
             /* filtering */
             if (conf->filters != NULL) {
-                struct upipe *avfilt = upipe_void_alloc_output(incoming,
-                    upipe_avfilt_mgr,
-                    uprobe_pfx_alloc_va(uprobe_use(logger),
-                                        loglevel, "filt %"PRIu64, id));
-                assert(avfilt != NULL);
-                if (unlikely(!ubase_check(upipe_avfilt_set_filters_desc(avfilt,
-                    conf->filters)))) {
+                struct uref *avfilt_input_flow = uref_alloc_control(uref_mgr);
+                //ubase_assert(uref_avfilt_flow_set_name_va(avfilt_input_flow,
+                //                                          "in %"PRIu64, id));
+                ubase_assert(uref_avfilt_flow_set_name(avfilt_input_flow,
+                                                       "in"));
+                ubase_assert(uref_avfilt_flow_set_input(avfilt_input_flow));
+
+                struct upipe *avfilt_input =
+                    upipe_flow_alloc_output_sub(
+                        incoming,
+                        avfilt,
+                        uprobe_pfx_alloc_va(uprobe_use(logger),
+                                            loglevel, "filtin %"PRIu64, id),
+                        avfilt_input_flow);
+                assert(avfilt_input != NULL);
+                uref_free(avfilt_input_flow);
+                upipe_release(avfilt_input);
+
+                struct uref *avfilt_output_flow = uref_alloc_control(uref_mgr);
+                //ubase_assert(uref_avfilt_flow_set_name_va(avfilt_output_flow,
+                //                                          "out %"PRIu64, id));
+                ubase_assert(uref_avfilt_flow_set_name(avfilt_output_flow,
+                                                       "out"));
+                struct upipe *avfilt_output =
+                    upipe_flow_alloc_sub(
+                        avfilt,
+                        uprobe_pfx_alloc_va(uprobe_use(logger),
+                                            loglevel, "filtout %"PRIu64, id),
+                        avfilt_output_flow);
+                assert(avfilt_output != NULL);
+                uref_free(avfilt_output_flow);
+
+                incoming = avfilt_output;
+
+                if (unlikely(!ubase_check(
+                            upipe_avfilt_set_filters_desc(avfilt,
+                                                          conf->filters)))) {
                     upipe_err_va(upipe, "cannot set filters for %"PRIu64" (%s)",
                                  id, def);
                     exit(EXIT_FAILURE);
                 }
-                upipe_release(avfilt);
-                incoming = avfilt;
             }
 
             /* format conversion */
@@ -456,6 +486,12 @@ int main(int argc, char *argv[])
         upipe_avfsrc_mgr_set_autof_mgr(upipe_avfsrc_mgr, upipe_autof_mgr);
         upipe_mgr_release(upipe_autof_mgr);
     }
+
+    /* avfilter */
+    avfilt = upipe_void_alloc(
+        upipe_avfilt_mgr,
+        uprobe_pfx_alloc(uprobe_use(logger), loglevel, "avfilt"));
+    assert(avfilt);
 
     /* avformat sink */
     avfsink = upipe_void_alloc(upipe_avfsink_mgr,

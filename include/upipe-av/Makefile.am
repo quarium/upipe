@@ -7,7 +7,8 @@ myinclude_HEADERS = \
 	upipe_avcodec_encode.h \
 	upipe_avformat_sink.h \
 	upipe_avformat_source.h \
-	uref_av_flow.h
+	uref_av_flow.h \
+	uref_avfilter_flow.h
 
 if HAVE_AVFILTER
 myinclude_HEADERS += upipe_avfilter.h
