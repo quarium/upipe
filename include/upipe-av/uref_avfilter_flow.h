@@ -38,6 +38,7 @@ extern "C" {
 
 UREF_ATTR_STRING(avfilt_flow, name, "avfilt.name", avfilter name)
 UREF_ATTR_VOID(avfilt_flow, input, "avfilt.input", avfilter input)
+UREF_ATTR_STRING(avfilt_flow, type, "avfilt.type", filter type)
 
 #ifdef __cplusplus
 }
