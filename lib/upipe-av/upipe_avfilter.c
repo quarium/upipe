@@ -44,6 +44,8 @@
 #include <upipe/upipe_helper_input.h>
 #include <upipe/upipe_helper_subpipe.h>
 #include <upipe/upipe_helper_uclock.h>
+#include <upipe/upipe_helper_upump_mgr.h>
+#include <upipe/upipe_helper_upump.h>
 #include <upipe-av/upipe_avfilter.h>
 #include <upipe-av/upipe_av_pixfmt.h>
 #include <upipe-av/upipe_av_samplefmt.h>
@@ -109,10 +111,22 @@ struct upipe_avfilt_sub {
     struct urequest uclock_request;
     /** uclock */
     struct uclock *uclock;
+    /** upump manager */
+    struct upump_mgr *upump_mgr;
+    /** upump */
+    struct upump *upump;
     /** sub pipe name */
     const char *name;
     /** sub pipe is an input pipe */
     bool input;
+    /** avfilter buffer source */
+    AVFilterContext *buffer_ctx;
+    /** system clock offset */
+    uint64_t pts_sys_offset;
+    /** first pts_prog */
+    uint64_t first_pts_prog;
+    /** list of retained uref */
+    struct uchain urefs;
     /** media type configured at allocation */
     enum upipe_avfilt_sub_media_type media_type;
     /** media type private fields */
@@ -140,13 +154,16 @@ struct upipe_avfilt_sub {
             uint64_t sample_rate;
         } audio;
     };
-    /** avfilter buffer source */
-    AVFilterContext *buffer_ctx;
 };
 
 /** @hidden */
 static inline int upipe_avfilt_sub_check_ubuf_mgr(struct upipe *upipe,
                                                   struct uref *flow_def);
+
+/** @hidden */
+static inline void upipe_avfilt_sub_flush_cb(struct upump *upump);
+/** @hidden */
+static void upipe_avfilt_sub_pop(struct upipe *upipe);
 
 UPIPE_HELPER_UPIPE(upipe_avfilt_sub, upipe, UPIPE_AVFILT_SUB_SIGNATURE)
 UPIPE_HELPER_FLOW(upipe_avfilt_sub, NULL)
@@ -160,6 +177,8 @@ UPIPE_HELPER_UCLOCK(upipe_avfilt_sub, uclock, uclock_request,
                     NULL,
                     upipe_avfilt_sub_register_output_request,
                     upipe_avfilt_sub_unregister_output_request)
+UPIPE_HELPER_UPUMP_MGR(upipe_avfilt_sub, upump_mgr);
+UPIPE_HELPER_UPUMP(upipe_avfilt_sub, upump, upump_mgr);
 
 enum upipe_avfilt_state {
     UPIPE_AVFILT_STATE_NONE,
@@ -189,7 +208,9 @@ struct upipe_avfilt {
 };
 
 /** @hidden */
-static int upipe_avfilt_init_filters(struct upipe *upipe);
+static int _upipe_avfilt_init_filters(struct upipe *upipe);
+/** @hidden */
+static void upipe_avfilt_update_outputs(struct upipe *upipe);
 
 UPIPE_HELPER_UPIPE(upipe_avfilt, upipe, UPIPE_AVFILT_SIGNATURE)
 UPIPE_HELPER_VOID(upipe_avfilt)
@@ -317,12 +338,78 @@ static int upipe_avfilt_sub_build_flow_def(struct upipe *upipe,
     return UBASE_ERR_UNHANDLED;
 }
 
+/** @internal @This waits for the next uref to output.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_avfilt_sub_wait(struct upipe *upipe, uint64_t timeout)
+{
+    struct upipe_avfilt_sub *upipe_avfilt_sub =
+        upipe_avfilt_sub_from_upipe(upipe);
+    if (!upipe_avfilt_sub->upump_mgr)
+        return;
+    return upipe_avfilt_sub_wait_upump(upipe, timeout, upipe_avfilt_sub_flush_cb);
+}
+
+/** @internal @This outputs the retained urefs.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_avfilt_sub_flush(struct upipe *upipe)
+{
+    struct upipe_avfilt_sub *upipe_avfilt_sub =
+        upipe_avfilt_sub_from_upipe(upipe);
+
+    uint64_t now = upipe_avfilt_sub_now(upipe);
+
+    struct uchain *uchain, *uchain_tmp;
+    ulist_delete_foreach(&upipe_avfilt_sub->urefs, uchain, uchain_tmp) {
+        struct uref *uref = uref_from_uchain(uchain);
+        uint64_t pts_sys = UINT64_MAX;
+        uref_clock_get_pts_sys(uref, &pts_sys);
+        if (now == UINT64_MAX || pts_sys == UINT64_MAX || pts_sys <= now) {
+            ulist_delete(uchain);
+            upipe_avfilt_sub_output(upipe, uref, NULL);
+        }
+        else {
+            upipe_avfilt_sub_wait(upipe, pts_sys - now);
+            return;
+        }
+    }
+
+    upipe_avfilt_sub_pop(upipe);
+}
+
+/** @internal @This pushes an uref to the output queue.
+ *
+ * @param upipe description structure of the pipe
+ * @param uref uref to output
+ */
+static void upipe_avfilt_sub_push(struct upipe *upipe, struct uref *uref)
+{
+    struct upipe_avfilt_sub *upipe_avfilt_sub =
+        upipe_avfilt_sub_from_upipe(upipe);
+    ulist_add(&upipe_avfilt_sub->urefs, uref_to_uchain(uref));
+    upipe_avfilt_sub_wait(upipe, 0);
+}
+
+/** @internal @This is the callback to output retained urefs.
+ *
+ * @param upump description structure of the pump
+ */
+static void upipe_avfilt_sub_flush_cb(struct upump *upump)
+{
+    struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
+    return upipe_avfilt_sub_flush(upipe);
+}
+
 /** @internal @This outputs a frame.
  *
  * @param upipe description structure of the pipe
  * @param frame AVFrame to output
+ * @param return true if a packet was outputted
  */
-static void upipe_avfilt_sub_output_frame(struct upipe *upipe, AVFrame *frame)
+static bool upipe_avfilt_sub_output_frame(struct upipe *upipe, AVFrame *frame)
 {
     struct upipe_avfilt_sub *upipe_avfilt_sub =
         upipe_avfilt_sub_from_upipe(upipe);
@@ -331,22 +418,22 @@ static void upipe_avfilt_sub_output_frame(struct upipe *upipe, AVFrame *frame)
         struct uref *flow_def_dup = uref_dup(upipe_avfilt_sub->flow_def_alloc);
         if (unlikely(!flow_def_dup)) {
             upipe_throw_error(upipe, UBASE_ERR_ALLOC);
-            return;
+            return false;
         }
 
         int ret = upipe_avfilt_sub_build_flow_def(upipe, flow_def_dup);
         if (unlikely(!ubase_check(ret))) {
             uref_free(flow_def_dup);
             upipe_throw_error(upipe, ret);
-            return;
+            return false;
         }
-
+        uref_sound_flow_set_rate(flow_def_dup, frame->sample_rate);
         upipe_avfilt_sub_require_ubuf_mgr(upipe, flow_def_dup);
     }
 
     if (unlikely(!upipe_avfilt_sub->ubuf_mgr)) {
         upipe_warn(upipe, "no ubuf manager for now");
-        return;
+        return false;
     }
 
     enum upipe_avfilt_sub_media_type type;
@@ -369,12 +456,12 @@ static void upipe_avfilt_sub_output_frame(struct upipe *upipe, AVFrame *frame)
     }
     else {
         upipe_warn(upipe, "unsupported flow format");
-        return;
+        return false;
     }
 
     if (unlikely(uref == NULL)) {
         upipe_throw_error(upipe, UBASE_ERR_ALLOC);
-        return;
+        return false;
     }
 
     switch (type) {
@@ -429,15 +516,35 @@ static void upipe_avfilt_sub_output_frame(struct upipe *upipe, AVFrame *frame)
         }
     }
 
-    uref_clock_set_pts_prog(uref, frame->pts);
-    if (upipe_avfilt_sub->uclock)
-        uref_clock_set_pts_sys(uref, uclock_now(upipe_avfilt_sub->uclock));
-    //uref_clock_set_dts_prog(uref, frame->pkt_dts);
-    UBASE_ERROR(upipe, uref_clock_set_duration(uref, frame->pkt_duration))
+    /* get system time */
+    uint64_t now = upipe_avfilt_sub_now(upipe);
 
+    /* set pts prog */
+    uint64_t pts_prog = frame->pts * UCLOCK_FREQ *
+        upipe_avfilt_sub->buffer_ctx->inputs[0]->time_base.num /
+        upipe_avfilt_sub->buffer_ctx->inputs[0]->time_base.den;
+    uref_clock_set_pts_prog(uref, pts_prog);
 
+    /* compute pts sys */
+    if (upipe_avfilt_sub->pts_sys_offset == UINT64_MAX) {
+        upipe_avfilt_sub->pts_sys_offset = now;
+        upipe_avfilt_sub->first_pts_prog = pts_prog;
+    }
+    if (pts_prog < upipe_avfilt_sub->first_pts_prog) {
+        upipe_warn(upipe, "pts in the past");
+        pts_prog = upipe_avfilt_sub->first_pts_prog;
+    }
+    uint64_t pts_sys = UINT64_MAX;
+    if (upipe_avfilt_sub->pts_sys_offset != UINT64_MAX) {
+        pts_sys = (pts_prog - upipe_avfilt_sub->first_pts_prog) +
+            upipe_avfilt_sub->pts_sys_offset;
+        uref_clock_set_pts_sys(uref, pts_sys);
+    }
+
+    uint64_t duration = 0;
     switch (type) {
         case UPIPE_AVFILT_SUB_MEDIA_TYPE_VIDEO:
+            duration = frame->pkt_duration;
             UBASE_ERROR(upipe, uref_pic_set_number(
                     uref, frame->coded_picture_number))
 
@@ -450,25 +557,28 @@ static void upipe_avfilt_sub_output_frame(struct upipe *upipe, AVFrame *frame)
                 UBASE_ERROR(upipe, uref_pic_set_key(uref))
 
             break;
-
-        default:
+        case UPIPE_AVFILT_SUB_MEDIA_TYPE_AUDIO:
+            duration = frame->nb_samples * UCLOCK_FREQ / frame->sample_rate;
             break;
     }
+    UBASE_ERROR(upipe, uref_clock_set_duration(uref, duration));
 
-    upipe_notice_va(upipe, "output frame %d(%d) pts=%f dts=%f duration=%f",
-                 frame->display_picture_number,
-                 frame->coded_picture_number,
-                 (double) frame->pts / UCLOCK_FREQ,
-                 (double) frame->pkt_dts / UCLOCK_FREQ,
-                 (double) frame->pkt_duration / UCLOCK_FREQ);
+    upipe_verbose_va(upipe, "output frame %d(%d) pts_prog=%f "
+                     "pts_sys=%f dts=%f duration=%f",
+                     frame->display_picture_number,
+                     frame->coded_picture_number,
+                     (double) pts_prog / UCLOCK_FREQ,
+                     (double) pts_sys / UCLOCK_FREQ,
+                     (double) frame->pkt_dts / UCLOCK_FREQ,
+                     (double) duration / UCLOCK_FREQ);
 
-    //FIXME: need an upump here?
-    upipe_avfilt_sub_output(upipe, uref, NULL);
-    return;
+    upipe_avfilt_sub_push(upipe, uref);
+    return ulist_empty(&upipe_avfilt_sub->urefs);
 
 err:
     upipe_throw_error(upipe, UBASE_ERR_INVALID);
     uref_free(uref);
+    return false;
 }
 
 /** @internal @This checks the ubuf manager.
@@ -483,6 +593,8 @@ static int upipe_avfilt_sub_check_ubuf_mgr(struct upipe *upipe,
     if (flow_def)
         upipe_avfilt_sub_store_flow_def(upipe, flow_def);
 
+    upipe_avfilt_sub_wait(upipe, 0);
+
     return UBASE_ERR_NONE;
 }
 
@@ -490,7 +602,7 @@ static int upipe_avfilt_sub_check_ubuf_mgr(struct upipe *upipe,
  *
  * @param upipe description structure of the pipe
  */
-static void upipe_avfilt_sub_check(struct upipe *upipe)
+static void upipe_avfilt_sub_pop(struct upipe *upipe)
 {
     struct upipe_avfilt_sub *upipe_avfilt_sub =
         upipe_avfilt_sub_from_upipe(upipe);
@@ -506,21 +618,21 @@ static void upipe_avfilt_sub_check(struct upipe *upipe)
     }
 
     /* pull filtered frames from the filtergraph */
-    while (1) {
-        int err = av_buffersink_get_frame(upipe_avfilt_sub->buffer_ctx,
-                                          filt_frame);
-        if (err == AVERROR(EAGAIN) || err == AVERROR_EOF)
-            break;
-        if (err < 0) {
-            upipe_err_va(upipe, "cannot get frame from filter graph: %s",
-                         av_err2str(err));
-            upipe_throw_error(upipe, UBASE_ERR_EXTERNAL);
-            break;
-        }
-        upipe_avfilt_sub_output_frame(upipe, filt_frame);
-        av_frame_unref(filt_frame);
+    int err = av_buffersink_get_frame(upipe_avfilt_sub->buffer_ctx,
+                                      filt_frame);
+    if (err == AVERROR(EAGAIN) || err == AVERROR_EOF) {
+        av_frame_free(&filt_frame);
+        return;
     }
-
+    if (err < 0) {
+        upipe_err_va(upipe, "cannot get frame from filter graph: %s",
+                     av_err2str(err));
+        upipe_throw_error(upipe, UBASE_ERR_EXTERNAL);
+        av_frame_free(&filt_frame);
+        return;
+    }
+    upipe_avfilt_sub_output_frame(upipe, filt_frame);
+    av_frame_unref(filt_frame);
     av_frame_free(&filt_frame);
 }
 
@@ -539,14 +651,7 @@ static int upipe_avfilt_sub_catch(struct uprobe *uprobe,
 {
     if (event == UPROBE_AVFILT_SUB_UPDATE &&
         ubase_get_signature(args) == UPIPE_AVFILT_SUB_SIGNATURE) {
-
-        struct upipe_avfilt *upipe_avfilt =
-            upipe_avfilt_from_sub_mgr(upipe->mgr);
-        struct uchain *uchain;
-        ulist_foreach(&upipe_avfilt->subs, uchain) {
-            struct upipe_avfilt_sub *sub = upipe_avfilt_sub_from_uchain(uchain);
-            upipe_avfilt_sub_check(upipe_avfilt_sub_to_upipe(sub));
-        }
+        upipe_avfilt_sub_wait(upipe, 0);
         return UBASE_ERR_NONE;
     }
     else
@@ -579,12 +684,16 @@ static struct upipe *upipe_avfilt_sub_alloc(struct upipe_mgr *mgr,
     upipe_avfilt_sub_init_output(upipe);
     upipe_avfilt_sub_init_ubuf_mgr(upipe);
     upipe_avfilt_sub_init_uclock(upipe);
+    upipe_avfilt_sub_init_upump_mgr(upipe);
+    upipe_avfilt_sub_init_upump(upipe);
 
     struct upipe_avfilt_sub *upipe_avfilt_sub =
         upipe_avfilt_sub_from_upipe(upipe);
     upipe_avfilt_sub->flow_def_alloc = flow_def;
     upipe_avfilt_sub->name = NULL;
     upipe_avfilt_sub->input = false;
+    upipe_avfilt_sub->pts_sys_offset = UINT64_MAX;
+    ulist_init(&upipe_avfilt_sub->urefs);
 
     upipe_throw_ready(upipe);
 
@@ -649,9 +758,15 @@ static void upipe_avfilt_sub_free(struct upipe *upipe)
     struct upipe_avfilt_sub *upipe_avfilt_sub =
         upipe_avfilt_sub_from_upipe(upipe);
 
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&upipe_avfilt_sub->urefs)))
+        uref_free(uref_from_uchain(uchain));
+
     upipe_throw_dead(upipe);
 
     uref_free(upipe_avfilt_sub->flow_def_alloc);
+    upipe_avfilt_sub_clean_upump(upipe);
+    upipe_avfilt_sub_clean_upump_mgr(upipe);
     upipe_avfilt_sub_clean_uclock(upipe);
     upipe_avfilt_sub_clean_ubuf_mgr(upipe);
     upipe_avfilt_sub_clean_output(upipe);
@@ -735,12 +850,12 @@ static int upipe_avfilt_sub_avframe_from_uref_pic(struct upipe *upipe,
     if (ubase_check(uref_clock_get_duration(uref, &duration)))
         frame->pkt_duration = duration;
 
-    upipe_notice_va(upipe, " input frame %d(%d) pts=%f dts=%f duration=%f",
-                    frame->display_picture_number,
-                    frame->coded_picture_number,
-                    (double) pts / UCLOCK_FREQ,
-                    (double) dts / UCLOCK_FREQ,
-                    (double) duration / UCLOCK_FREQ);
+    upipe_verbose_va(upipe, " input frame %d(%d) pts=%f dts=%f duration=%f",
+                     frame->display_picture_number,
+                     frame->coded_picture_number,
+                     (double) pts / UCLOCK_FREQ,
+                     (double) dts / UCLOCK_FREQ,
+                     (double) duration / UCLOCK_FREQ);
 
     return UBASE_ERR_NONE;
 
@@ -808,10 +923,10 @@ static int upipe_avfilt_sub_avframe_from_uref_sound(struct upipe *upipe,
     frame->channel_layout = upipe_avfilt_sub->audio.channel_layout;
     frame->channels = upipe_avfilt_sub->audio.channels;
 
-    upipe_notice_va(upipe, " input frame pts=%f dts=%f duration=%f",
-                    (double) pts / UCLOCK_FREQ,
-                    (double) dts / UCLOCK_FREQ,
-                    (double) duration / UCLOCK_FREQ);
+    upipe_verbose_va(upipe, " input frame pts=%f dts=%f duration=%f",
+                     (double) pts / UCLOCK_FREQ,
+                     (double) dts / UCLOCK_FREQ,
+                     (double) duration / UCLOCK_FREQ);
 
     return UBASE_ERR_NONE;
 }
@@ -850,9 +965,16 @@ static void upipe_avfilt_sub_input(struct upipe *upipe,
 {
     struct upipe_avfilt_sub *upipe_avfilt_sub =
         upipe_avfilt_sub_from_upipe(upipe);
+    struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_sub_mgr(upipe->mgr);
 
     if (unlikely(!upipe_avfilt_sub->input)) {
         upipe_err(upipe, "receive buffer in an output sub pipe");
+        uref_free(uref);
+        return;
+    }
+
+    if (unlikely(upipe_avfilt->state != UPIPE_AVFILT_STATE_CONFIGURED)) {
+        upipe_warn(upipe, "filter graph is not configured");
         uref_free(uref);
         return;
     }
@@ -881,7 +1003,7 @@ static void upipe_avfilt_sub_input(struct upipe *upipe,
         return;
     }
 
-    upipe_avfilt_sub_throw_update(upipe);
+    upipe_avfilt_update_outputs(upipe_avfilt_to_upipe(upipe_avfilt));
 }
 
 /** @internal @This sets the input sub pipe flow definition for video.
@@ -897,7 +1019,7 @@ static int upipe_avfilt_sub_set_flow_def_pic(struct upipe *upipe,
         upipe_avfilt_sub_from_upipe(upipe);
     struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_sub_mgr(upipe->mgr);
 
-    if (unlikely(!upipe_avfilt_sub->media_type !=
+    if (unlikely(upipe_avfilt_sub->media_type !=
                  UPIPE_AVFILT_SUB_MEDIA_TYPE_VIDEO))
         return UBASE_ERR_INVALID;
 
@@ -986,7 +1108,7 @@ static int upipe_avfilt_sub_set_flow_def_pic(struct upipe *upipe,
             upipe_err_va(upipe, "cannot create filter: %s", av_err2str(err));
             return UBASE_ERR_EXTERNAL;
         }
-        upipe_avfilt_init_filters(upipe_avfilt_to_upipe(upipe_avfilt));
+        _upipe_avfilt_init_filters(upipe_avfilt_to_upipe(upipe_avfilt));
     }
     return UBASE_ERR_NONE;
 }
@@ -1095,7 +1217,7 @@ static int upipe_avfilt_sub_set_flow_def_sound(struct upipe *upipe,
             upipe_err_va(upipe, "cannot create filter: %s", av_err2str(err));
             return UBASE_ERR_EXTERNAL;
         }
-        upipe_avfilt_init_filters(upipe_avfilt_to_upipe(upipe_avfilt));
+        _upipe_avfilt_init_filters(upipe_avfilt_to_upipe(upipe_avfilt));
     }
     upipe_avfilt_sub->audio.sample_fmt = sample_fmt;
     upipe_avfilt_sub->audio.channels = channels;
@@ -1113,6 +1235,12 @@ static int upipe_avfilt_sub_set_flow_def_sound(struct upipe *upipe,
 static int upipe_avfilt_sub_set_flow_def(struct upipe *upipe,
                                          struct uref *flow_def)
 {
+    struct upipe_avfilt_sub *upipe_avfilt_sub =
+        upipe_avfilt_sub_from_upipe(upipe);
+
+    if (!upipe_avfilt_sub->input)
+        return UBASE_ERR_UNHANDLED;
+
     if (ubase_check(uref_flow_match_def(flow_def, UREF_PIC_FLOW_DEF))) {
         UBASE_RETURN(upipe_avfilt_sub_set_flow_def_pic(upipe, flow_def));
     }
@@ -1139,34 +1267,80 @@ static int upipe_avfilt_sub_set_flow_def(struct upipe *upipe,
  * @param args optional arguments of the control command
  * @return an error code
  */
-static int upipe_avfilt_sub_control(struct upipe *upipe, int cmd, va_list args)
+static int upipe_avfilt_sub_control_real(struct upipe *upipe, int cmd, va_list args)
 {
     struct upipe_avfilt_sub *upipe_avfilt_sub =
         upipe_avfilt_sub_from_upipe(upipe);
 
     UBASE_HANDLED_RETURN(upipe_avfilt_sub_control_super(upipe, cmd, args));
-    if (!upipe_avfilt_sub->input) {
+    if (!upipe_avfilt_sub->input)
         UBASE_HANDLED_RETURN(upipe_avfilt_sub_control_output(upipe, cmd, args));
-        switch (cmd) {
-            case UPIPE_ATTACH_UCLOCK:
-                upipe_avfilt_sub_require_uclock(upipe);
-                return UBASE_ERR_NONE;
-        }
-    }
-    else {
-        switch (cmd) {
-            case UPIPE_ATTACH_UCLOCK:
-                upipe_avfilt_sub_require_uclock(upipe);
-                return UBASE_ERR_NONE;
 
-            case UPIPE_SET_FLOW_DEF: {
-                struct uref *flow_def = va_arg(args, struct uref *);
-                return upipe_avfilt_sub_set_flow_def(upipe, flow_def);
-            }
+    switch (cmd) {
+        case UPIPE_ATTACH_UPUMP_MGR:
+            return upipe_avfilt_sub_attach_upump_mgr(upipe);
+        case UPIPE_ATTACH_UCLOCK:
+            upipe_avfilt_sub_require_uclock(upipe);
+            return UBASE_ERR_NONE;
+        case UPIPE_SET_FLOW_DEF: {
+            struct uref *flow_def = va_arg(args, struct uref *);
+            return upipe_avfilt_sub_set_flow_def(upipe, flow_def);
         }
     }
 
     return UBASE_ERR_UNHANDLED;
+}
+
+/** @internal @This checks the internal state of the sub pipe.
+ *
+ * @param upipe description structure of the sub pipe
+ * @return an error code
+ */
+static int upipe_avfilt_sub_check(struct upipe *upipe)
+{
+    struct upipe_avfilt_sub *upipe_avfilt_sub =
+        upipe_avfilt_sub_from_upipe(upipe);
+    struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_sub_mgr(upipe->mgr);
+
+    if (!upipe_avfilt_sub->input)
+        upipe_avfilt_sub_check_upump_mgr(upipe);
+
+    if (!upipe_avfilt_sub->upump_mgr)
+        return UBASE_ERR_NONE;
+
+    if (upipe_avfilt->state == UPIPE_AVFILT_STATE_CONFIGURED)
+        upipe_avfilt_sub_wait(upipe, 0);
+
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This handles the avfilter sub pipe control commands and checks the
+ * internal state.
+ *
+ * @param upipe description structure of the sub pipe
+ * @param command control command to handle
+ * @param args optional arguments of the control command
+ * @return an error code
+ */
+static int upipe_avfilt_sub_control(struct upipe *upipe, int cmd, va_list args)
+{
+    UBASE_RETURN(upipe_avfilt_sub_control_real(upipe, cmd, args));
+    return upipe_avfilt_sub_check(upipe);
+}
+
+/** @internal @This updates the outputs if needed.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_avfilt_update_outputs(struct upipe *upipe)
+{
+    struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_upipe(upipe);
+    struct uchain *uchain;
+    ulist_foreach(&upipe_avfilt->subs, uchain) {
+        struct upipe_avfilt_sub *sub = upipe_avfilt_sub_from_uchain(uchain);
+        if (!sub->input)
+            upipe_avfilt_sub_throw_update(upipe_avfilt_sub_to_upipe(sub));
+    }
 }
 
 /** @internal @This initializes the avfilter graph.
@@ -1175,7 +1349,7 @@ static int upipe_avfilt_sub_control(struct upipe *upipe, int cmd, va_list args)
  * @param upipe description structure of the pipe
  * @return an error code
  */
-static int upipe_avfilt_init_filters(struct upipe *upipe)
+static int _upipe_avfilt_init_filters(struct upipe *upipe)
 {
     struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_upipe(upipe);
     struct uchain *uchain;
@@ -1238,10 +1412,8 @@ static int upipe_avfilt_init_filters(struct upipe *upipe)
         prev_input = inout;
     }
 
-    if (outputs == NULL || inputs == NULL) {
-        upipe_err(upipe, "cannot allocate filter inputs/outputs");
-        goto end;
-    }
+    if (!inputs && !outputs)
+        return UBASE_ERR_NONE;
 
     upipe_notice_va(upipe, "configuring filter %s", upipe_avfilt->filters_desc);
     if ((err = avfilter_graph_parse_ptr(upipe_avfilt->filter_graph,
@@ -1262,6 +1434,13 @@ static int upipe_avfilt_init_filters(struct upipe *upipe)
     ret = UBASE_ERR_NONE;
     upipe_avfilt->state = UPIPE_AVFILT_STATE_CONFIGURED;
     upipe_notice(upipe, "filter is now configured");
+
+    ulist_foreach(&upipe_avfilt->subs, uchain) {
+        struct upipe_avfilt_sub *upipe_avfilt_sub =
+            upipe_avfilt_sub_from_uchain(uchain);
+        struct upipe *sub = upipe_avfilt_sub_to_upipe(upipe_avfilt_sub);
+        upipe_avfilt_sub_throw_update(sub);
+    }
 
 end:
     avfilter_inout_free(&inputs);
@@ -1304,6 +1483,9 @@ static int upipe_avfilt_control(struct upipe *upipe, int command, va_list args)
             const char *filters_desc = va_arg(args, const char *);
             return _upipe_avfilt_set_filters_desc(upipe, filters_desc);
         }
+        case UPIPE_AVFILT_INIT_FILTERS:
+            UBASE_SIGNATURE_CHECK(args, UPIPE_AVFILT_SIGNATURE)
+            return _upipe_avfilt_init_filters(upipe);
         default:
             return UBASE_ERR_UNHANDLED;
     }
