@@ -569,7 +569,7 @@ static int ubuf_sound_av_size(struct ubuf *ubuf,
 /** @internal @This iterates the sound planes.
  *
  * @param ubuf pointer to buffer
- * @param channel_p the previous channel name or NULL, filled with the next channel 
+ * @param channel_p the previous channel name or NULL, filled with the next channel
  * name
  * @return an error code
  */
