@@ -50,13 +50,14 @@ static void STRUCTURE##_clean_##ULIST(struct STRUCTURE *s)                  \
 {                                                                           \
 }                                                                           \
                                                                             \
-static inline void STRUCTURE##_add_##SUBSTRUCTURE(struct STRUCTURE *s,      \
-                                                  struct SUBSTRUCTURE *i)   \
+static UBASE_UNUSED void                                                    \
+STRUCTURE##_add_##SUBSTRUCTURE(struct STRUCTURE *s,                         \
+                               struct SUBSTRUCTURE *i)                      \
 {                                                                           \
     ulist_add(STRUCTURE##_to_##ULIST(s), SUBSTRUCTURE##_to_##UCHAIN(i));    \
 }                                                                           \
                                                                             \
-static inline struct SUBSTRUCTURE *                                         \
+static UBASE_UNUSED struct SUBSTRUCTURE *                                   \
 STRUCTURE##_peek_##SUBSTRUCTURE(struct STRUCTURE *s)                        \
 {                                                                           \
     struct uchain *list = STRUCTURE##_to_##ULIST(s);                        \
@@ -64,7 +65,7 @@ STRUCTURE##_peek_##SUBSTRUCTURE(struct STRUCTURE *s)                        \
     return elt ? SUBSTRUCTURE##_from_##UCHAIN(elt) : NULL;                  \
 }                                                                           \
                                                                             \
-static inline struct SUBSTRUCTURE *                                         \
+static UBASE_UNUSED struct SUBSTRUCTURE *                                   \
 STRUCTURE##_pop_##SUBSTRUCTURE(struct STRUCTURE *s)                         \
 {                                                                           \
     struct uchain *list = STRUCTURE##_to_##ULIST(s);                        \
@@ -72,7 +73,7 @@ STRUCTURE##_pop_##SUBSTRUCTURE(struct STRUCTURE *s)                         \
     return elt ? SUBSTRUCTURE##_from_##UCHAIN(elt) : NULL;                  \
 }                                                                           \
                                                                             \
-static inline struct SUBSTRUCTURE *                                         \
+static UBASE_UNUSED struct SUBSTRUCTURE *                                   \
 STRUCTURE##_iterator_##SUBSTRUCTURE(struct STRUCTURE *s,                    \
                                     struct SUBSTRUCTURE *i)                 \
 {                                                                           \
@@ -85,7 +86,7 @@ STRUCTURE##_iterator_##SUBSTRUCTURE(struct STRUCTURE *s,                    \
     return SUBSTRUCTURE##_from_##UCHAIN(elt->next);                         \
 }                                                                           \
                                                                             \
-static inline struct SUBSTRUCTURE *                                         \
+static UBASE_UNUSED struct SUBSTRUCTURE *                                   \
 STRUCTURE##_delete_iterator_##SUBSTRUCTURE(struct STRUCTURE *s,             \
                                            struct SUBSTRUCTURE *i,          \
                                            struct uchain **tmp)             \
