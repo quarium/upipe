@@ -166,7 +166,7 @@ static void STRUCTURE##_clean_uclock(struct upipe *upipe)                   \
  * @param upipe description structure of the pipe                           \
  * @return the current systemt time                                         \
  */                                                                         \
-static inline uint64_t STRUCTURE##_now(struct upipe *upipe)                 \
+static UBASE_UNUSED uint64_t STRUCTURE##_now(struct upipe *upipe)           \
 {                                                                           \
     struct STRUCTURE *s = STRUCTURE##_from_upipe(upipe);                    \
     return s->UCLOCK ? uclock_now(s->UCLOCK) : UINT64_MAX;                  \
