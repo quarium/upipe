@@ -124,6 +124,8 @@ struct upipe_avfilt_sub {
     uint64_t first_pts_prog;
     /** list of retained uref */
     struct uchain urefs;
+    /** not configured warning */
+    bool not_configured_warning;
 
     /** media type configured at allocation */
     enum upipe_avfilt_sub_media_type media_type;
@@ -847,6 +849,7 @@ static struct upipe *upipe_avfilt_sub_alloc(struct upipe_mgr *mgr,
     upipe_avfilt_sub->input = false;
     upipe_avfilt_sub->pts_sys_offset = UINT64_MAX;
     upipe_avfilt_sub->buffer_ctx = NULL;
+    upipe_avfilt_sub->not_configured_warning = true;
     ulist_init(&upipe_avfilt_sub->urefs);
 
     upipe_throw_ready(upipe);
@@ -1101,10 +1104,13 @@ static void upipe_avfilt_sub_input(struct upipe *upipe,
     }
 
     if (unlikely(!upipe_avfilt->configured)) {
-        upipe_warn(upipe, "filter graph is not configured");
+        if (upipe_avfilt_sub->not_configured_warning)
+            upipe_warn(upipe, "filter graph is not configured");
+        upipe_avfilt_sub->not_configured_warning = false;
         uref_free(uref);
         return;
     }
+    upipe_avfilt_sub->not_configured_warning = true;
 
     AVFrame *frame = av_frame_alloc();
     if (unlikely(!frame)) {
