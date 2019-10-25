@@ -88,8 +88,12 @@ upipe_av_samplefmt_to_flow_format(enum AVSampleFormat fmt)
         { AV_SAMPLE_FMT_S32P, &uref_sound_flow_format_s32_planar },
         { AV_SAMPLE_FMT_FLTP, &uref_sound_flow_format_f32_planar },
         { AV_SAMPLE_FMT_DBLP, &uref_sound_flow_format_f64_planar },
+#ifdef AV_SAMPLE_FMT_S64
         { AV_SAMPLE_FMT_S64, &uref_sound_flow_format_s64 },
+#endif
+#ifdef AV_SAMPLE_FMT_S64P
         { AV_SAMPLE_FMT_S64P, &uref_sound_flow_format_s64_planar },
+#endif
 
 #ifdef UPIPE_WORDS_BIGENDIAN
         { AV_SAMPLE_FMT_S16, &uref_sound_flow_format_s16be },
@@ -100,8 +104,12 @@ upipe_av_samplefmt_to_flow_format(enum AVSampleFormat fmt)
         { AV_SAMPLE_FMT_S32P, &uref_sound_flow_format_s32be_planar },
         { AV_SAMPLE_FMT_FLTP, &uref_sound_flow_format_f32be_planar },
         { AV_SAMPLE_FMT_DBLP, &uref_sound_flow_format_f64be_planar },
+#ifdef AV_SAMPLE_FMT_S64
         { AV_SAMPLE_FMT_S64, &uref_sound_flow_format_s64be },
+#endif
+#ifdef AV_SAMPLE_FMT_S64P
         { AV_SAMPLE_FMT_S64P, &uref_sound_flow_format_s64be_planar },
+#endif
 #else
         { AV_SAMPLE_FMT_S16, &uref_sound_flow_format_s16le },
         { AV_SAMPLE_FMT_S32, &uref_sound_flow_format_s32le },
@@ -111,8 +119,12 @@ upipe_av_samplefmt_to_flow_format(enum AVSampleFormat fmt)
         { AV_SAMPLE_FMT_S32P, &uref_sound_flow_format_s32le_planar },
         { AV_SAMPLE_FMT_FLTP, &uref_sound_flow_format_f32le_planar },
         { AV_SAMPLE_FMT_DBLP, &uref_sound_flow_format_f64le_planar },
+#ifdef AV_SAMPLE_FMT_S64
         { AV_SAMPLE_FMT_S64, &uref_sound_flow_format_s64le },
+#endif
+#ifdef AV_SAMPLE_FMT_S64P
         { AV_SAMPLE_FMT_S64P, &uref_sound_flow_format_s64le_planar },
+#endif
 #endif
         { AV_SAMPLE_FMT_NONE, NULL }
     };
