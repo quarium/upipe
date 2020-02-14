@@ -599,8 +599,8 @@ static void upipe_avfsrc_worker(struct upump *upump)
 
     uint64_t dts_orig = UINT64_MAX, dts_pts_delay = 0;
     if (pkt.dts != (int64_t)AV_NOPTS_VALUE) {
-        dts_orig = pkt.dts * stream->time_base.num * (int64_t)UCLOCK_FREQ /
-                   stream->time_base.den - INT64_MIN;
+        dts_orig = av_rescale_q(pkt.dts, stream->time_base,
+                                (AVRational){ 1, UCLOCK_FREQ });
         if (pkt.pts != (int64_t)AV_NOPTS_VALUE) {
             if (pkt.pts < pkt.dts) {
                 upipe_warn_va(upipe, "pts in the past (pts=%"PRIi64", "
@@ -611,8 +611,8 @@ static void upipe_avfsrc_worker(struct upump *upump)
             }
         }
     } else if (pkt.pts != (int64_t)AV_NOPTS_VALUE) {
-        dts_orig = pkt.pts * stream->time_base.num * (int64_t)UCLOCK_FREQ /
-                   stream->time_base.den - INT64_MIN;
+        dts_orig = av_rescale_q(pkt.pts, stream->time_base,
+                                (AVRational){ 1, UCLOCK_FREQ });
     }
 
     if (dts_orig != UINT64_MAX) {
