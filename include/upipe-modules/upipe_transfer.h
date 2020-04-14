@@ -76,7 +76,9 @@ static inline int upipe_xfer_get_remote(struct upipe *upipe,
 enum upipe_xfer_mgr_command {
     UPIPE_XFER_MGR_SENTINEL = UPIPE_MGR_CONTROL_LOCAL,
 
-    /** attach to given upump manager (struct upump_mgr *) */
+    /** attach to given local upump manager (struct upump_mgr *) */
+    UPIPE_XFER_MGR_ATTACH_LOCAL,
+    /** attach to given remote upump manager (struct upump_mgr *) */
     UPIPE_XFER_MGR_ATTACH,
     /** freeze the remote event loop (void) */
     UPIPE_XFER_MGR_FREEZE,
@@ -97,6 +99,15 @@ enum upipe_xfer_mgr_command {
 struct upipe_mgr *upipe_xfer_mgr_alloc(uint8_t queue_length,
                                        uint16_t msg_pool_depth,
                                        struct umutex *mutex);
+
+/** FIXME */
+static inline int upipe_xfer_mgr_attach_local(struct upipe_mgr *mgr,
+                                              struct upump_mgr *upump_mgr)
+
+{
+    return upipe_mgr_control(mgr, UPIPE_XFER_MGR_ATTACH_LOCAL,
+                             UPIPE_XFER_SIGNATURE, upump_mgr);
+}
 
 /** @This attaches a upipe_xfer_mgr to a given event loop. The xfer manager
  * will call upump_alloc_XXX and upump_start, so it must be done in a context

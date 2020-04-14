@@ -64,10 +64,16 @@ struct upipe_xfer_mgr {
 
     /** mutual exclusion primitives to access the remote event loop */
     struct umutex *mutex;
-    /** watcher */
-    struct upump *upump;
+    /** local upump_mgr */
+    struct upump_mgr *local_upump_mgr;
+    /** local watcher */
+    struct upump *local_upump;
+    /** local list */
+    struct uchain local_list;
     /** remote upump_mgr */
-    struct upump_mgr *upump_mgr;
+    struct upump_mgr *remote_upump_mgr;
+    /** remote watcher */
+    struct upump *remote_upump;
     /** queue length */
     uint8_t queue_length;
     /** queue of messages */
@@ -521,20 +527,49 @@ static void upipe_xfer_mgr_vacuum(struct upipe_mgr *mgr)
 static void upipe_xfer_mgr_free(struct upipe_mgr *mgr)
 {
     struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
-    upump_stop(xfer_mgr->upump);
-    upump_free(xfer_mgr->upump);
-    upump_mgr_release(xfer_mgr->upump_mgr);
+    upump_stop(xfer_mgr->remote_upump);
+    upump_free(xfer_mgr->remote_upump);
+    upump_mgr_release(xfer_mgr->remote_upump_mgr);
+    upipe_xfer_mgr_vacuum(mgr);
     uqueue_clean(&xfer_mgr->uqueue);
     umutex_release(xfer_mgr->mutex);
-    upipe_xfer_mgr_vacuum(mgr);
+    fprintf(stderr, "mgr %p freed\n", &xfer_mgr->mgr);
     free(xfer_mgr);
+}
+
+/** @This is called by the local upump manager to send messages.
+ *
+ * @param upump description structure of the write watcher
+ */
+static void upipe_xfer_mgr_local_worker(struct upump *upump)
+{
+    struct upipe_mgr *mgr = upump_get_opaque(upump, struct upipe_mgr *);
+    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
+    struct upump_mgr *upump_mgr = xfer_mgr->local_upump_mgr;
+    struct uchain *uchain;
+    int type = -1;
+    while ((uchain = ulist_pop(&xfer_mgr->local_list))) {
+        struct upipe_xfer_msg *msg = upipe_xfer_msg_from_uchain(uchain);
+        type = msg->type;
+        if (unlikely(!uqueue_push(&xfer_mgr->uqueue, msg))) {
+            ulist_unshift(&xfer_mgr->local_list, uchain);
+            return;
+        }
+    }
+
+    upump_stop(upump);
+
+    if (type == UPIPE_XFER_DETACH) {
+        upump_free(upump);
+        upump_mgr_release(upump_mgr);
+    }
 }
 
 /** @This is called by the remote upump manager to receive messages.
  *
  * @param upump description structure of the read watcher
  */
-static void upipe_xfer_mgr_worker(struct upump *upump)
+static void upipe_xfer_mgr_remote_worker(struct upump *upump)
 {
     struct upipe_mgr *mgr = upump_get_opaque(upump, struct upipe_mgr *);
     struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
@@ -590,10 +625,23 @@ static int upipe_xfer_mgr_send(struct upipe_mgr *mgr, int type,
     msg->upipe_remote = upipe_remote;
     msg->arg = arg;
 
-    if (unlikely(!uqueue_push(&xfer_mgr->uqueue, msg))) {
-        upipe_xfer_msg_free(mgr, msg);
-        return UBASE_ERR_EXTERNAL;
+    struct upump_mgr *upump_mgr = xfer_mgr->local_upump_mgr;
+    struct upump *upump = xfer_mgr->local_upump;
+
+    if (!ulist_empty(&xfer_mgr->local_list) ||
+        !uqueue_push(&xfer_mgr->uqueue, msg)) {
+        if (xfer_mgr->local_upump) {
+            ulist_add(&xfer_mgr->local_list, upipe_xfer_msg_to_uchain(msg));
+            upump_start(xfer_mgr->local_upump);
+        }
+        else
+            return UBASE_ERR_EXTERNAL;
     }
+    else if (type == UPIPE_XFER_DETACH) {
+        upump_free(upump);
+        upump_mgr_release(upump_mgr);
+    }
+
     return UBASE_ERR_NONE;
 }
 
@@ -606,12 +654,34 @@ static void upipe_xfer_mgr_detach(struct urefcount *urefcount)
 {
     struct upipe_xfer_mgr *xfer_mgr =
         upipe_xfer_mgr_from_urefcount(urefcount);
-    assert(xfer_mgr->upump_mgr != NULL);
+    assert(xfer_mgr->remote_upump_mgr != NULL);
     urefcount_clean(urefcount);
 
     union upipe_xfer_arg arg = { .pipe = NULL };
     upipe_xfer_mgr_send(upipe_xfer_mgr_to_upipe_mgr(xfer_mgr),
                         UPIPE_XFER_DETACH, NULL, arg);
+}
+
+/** @This attaches the local event loop to allocate write watcher.
+ *
+ * @param mgr xfer_mgr structure
+ * @param upump_mgr upump manager of the main thread
+ * @return an error code
+ */
+static int _upipe_xfer_mgr_attach_local(struct upipe_mgr *mgr,
+                                        struct upump_mgr *upump_mgr)
+{
+    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
+    if (unlikely(xfer_mgr->local_upump_mgr != NULL))
+        return UBASE_ERR_INVALID;
+
+    xfer_mgr->local_upump = uqueue_upump_alloc_push(
+        &xfer_mgr->uqueue, upump_mgr, upipe_xfer_mgr_local_worker, mgr, NULL);
+    if (unlikely(!xfer_mgr->local_upump))
+        return UBASE_ERR_UPUMP;
+    xfer_mgr->local_upump_mgr = upump_mgr;
+    upump_mgr_use(upump_mgr);
+    return UBASE_ERR_NONE;
 }
 
 /** @This attaches a upipe_xfer_mgr to a given event loop. The xfer manager
@@ -631,18 +701,17 @@ static int _upipe_xfer_mgr_attach(struct upipe_mgr *mgr,
                                   struct upump_mgr *upump_mgr)
 {
     struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
-    if (unlikely(xfer_mgr->upump_mgr != NULL))
+    if (unlikely(xfer_mgr->remote_upump_mgr != NULL))
         return UBASE_ERR_INVALID;
 
-    xfer_mgr->upump = uqueue_upump_alloc_pop(&xfer_mgr->uqueue,
-                                             upump_mgr, upipe_xfer_mgr_worker,
-                                             mgr, NULL);
-    if (unlikely(xfer_mgr->upump == NULL))
+    xfer_mgr->remote_upump = uqueue_upump_alloc_pop(
+        &xfer_mgr->uqueue, upump_mgr, upipe_xfer_mgr_remote_worker, mgr, NULL);
+    if (unlikely(xfer_mgr->remote_upump == NULL))
         return UBASE_ERR_UPUMP;
 
-    xfer_mgr->upump_mgr = upump_mgr;
+    xfer_mgr->remote_upump_mgr = upump_mgr;
     upump_mgr_use(upump_mgr);
-    upump_start(xfer_mgr->upump);
+    upump_start(xfer_mgr->remote_upump);
     return UBASE_ERR_NONE;
 }
 
@@ -688,6 +757,11 @@ static int upipe_xfer_mgr_control(struct upipe_mgr *mgr,
                                   int command, va_list args)
 {
     switch (command) {
+        case UPIPE_XFER_MGR_ATTACH_LOCAL: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_XFER_SIGNATURE)
+            struct upump_mgr *upump_mgr = va_arg(args, struct upump_mgr *);
+            return _upipe_xfer_mgr_attach_local(mgr, upump_mgr);
+        }
         case UPIPE_XFER_MGR_ATTACH: {
             UBASE_SIGNATURE_CHECK(args, UPIPE_XFER_SIGNATURE)
             struct upump_mgr *upump_mgr = va_arg(args, struct upump_mgr *);
@@ -734,9 +808,12 @@ struct upipe_mgr *upipe_xfer_mgr_alloc(uint8_t queue_length,
         return NULL;
     }
     xfer_mgr->mutex = umutex_use(mutex);
-    xfer_mgr->upump = NULL;
-    xfer_mgr->upump_mgr = NULL;
+    xfer_mgr->local_upump_mgr = NULL;
+    xfer_mgr->local_upump = NULL;
+    xfer_mgr->remote_upump_mgr = NULL;
+    xfer_mgr->remote_upump = NULL;
     xfer_mgr->queue_length = queue_length;
+    ulist_init(&xfer_mgr->local_list);
     ulifo_init(&xfer_mgr->msg_pool, msg_pool_depth,
                xfer_mgr->extra + uqueue_sizeof(queue_length));
 
