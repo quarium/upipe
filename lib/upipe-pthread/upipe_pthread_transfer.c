@@ -216,6 +216,8 @@ struct upipe_mgr *upipe_pthread_xfer_mgr_alloc_named(uint8_t queue_length,
     if (unlikely(xfer_mgr == NULL))
         goto upipe_pthread_xfer_mgr_alloc_err4;
 
+    upipe_xfer_mgr_attach_local(xfer_mgr, upump_mgr);
+
     pthread_ctx->xfer_mgr = upipe_mgr_use(xfer_mgr);
     pthread_ctx->uprobe_pthread_upump_mgr = uprobe_pthread_upump_mgr;
     pthread_ctx->upump_mgr_alloc = upump_mgr_alloc;
