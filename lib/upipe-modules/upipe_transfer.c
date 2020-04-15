@@ -54,32 +54,12 @@
 #include <math.h>
 #include <assert.h>
 
-/** @internal @This is the private context of a xfer pipe manager. */
-struct upipe_xfer_mgr {
-    /** real refcount management structure */
-    struct urefcount urefcount;
-
-    /** public upipe manager structure */
-    struct upipe_mgr mgr;
-
-    /** mutual exclusion primitives to access the remote event loop */
-    struct umutex *mutex;
-    /** watcher */
-    struct upump *upump;
-    /** remote upump_mgr */
-    struct upump_mgr *upump_mgr;
-    /** queue length */
-    uint8_t queue_length;
-    /** queue of messages */
-    struct uqueue uqueue;
-    /** pool of @ref upipe_xfer_msg */
-    struct ulifo msg_pool;
-    /** extra data for the queue and pool structures */
-    uint8_t extra[];
+/** @This enumerates the message allocators. */
+enum upipe_xfer_msg_allocator {
+    UPIPE_XFER_MSG_ALLOCATOR_LIFO,
+    UPIPE_XFER_MSG_ALLOCATOR_MALLOC,
+    UPIPE_XFER_MSG_ALLOCATOR_STATIC,
 };
-
-UBASE_FROM_TO(upipe_xfer_mgr, upipe_mgr, upipe_mgr, mgr)
-UBASE_FROM_TO(upipe_xfer_mgr, urefcount, urefcount, urefcount)
 
 /** @This represents types of messages to send to the remote upump_mgr.
  */
@@ -115,17 +95,16 @@ union upipe_xfer_event_arg {
     uint64_t u64;
 };
 
-/** @hidden */
-static int upipe_xfer_mgr_send(struct upipe_mgr *mgr, int type,
-                               struct upipe *upipe_remote,
-                               union upipe_xfer_arg arg);
-
 /** @This stores a message to send.
  */
 struct upipe_xfer_msg {
     /** structure for double-linked lists */
     struct uchain uchain;
 
+    /** message allocator */
+    enum upipe_xfer_msg_allocator allocator;
+    /** message owner refcount */
+    struct urefcount *urefcount;
     /** type of command */
     int type;
     /** remote pipe */
@@ -140,35 +119,35 @@ struct upipe_xfer_msg {
 
 UBASE_FROM_TO(upipe_xfer_msg, uchain, uchain, uchain)
 
-/** @This allocates and initializes a message structure.
- *
- * @param mgr xfer_mgr structure
- * @return pointer to upipe_xfer_msg or NULL in case of allocation error
- */
-static struct upipe_xfer_msg *upipe_xfer_msg_alloc(struct upipe_mgr *mgr)
-{
-    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
-    struct upipe_xfer_msg *msg = ulifo_pop(&xfer_mgr->msg_pool,
-                                           struct upipe_xfer_msg *);
-    if (unlikely(msg == NULL))
-        msg = malloc(sizeof(struct upipe_xfer_msg));
-    if (unlikely(msg == NULL))
-        return NULL;
-    return msg;
-}
+/** @internal @This is the private context of a xfer pipe manager. */
+struct upipe_xfer_mgr {
+    /** real refcount management structure */
+    struct urefcount urefcount;
 
-/** @This frees a message structure.
- *
- * @param mgr xfer_mgr structure
- * @param msg message structure to free
- */
-static void upipe_xfer_msg_free(struct upipe_mgr *mgr,
-                                struct upipe_xfer_msg *msg)
-{
-    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
-    if (unlikely(!ulifo_push(&xfer_mgr->msg_pool, msg)))
-        free(msg);
-}
+    /** public upipe manager structure */
+    struct upipe_mgr mgr;
+
+    /** preallocated message for UPIPE_XFER_DETACH */
+    struct upipe_xfer_msg msg_detach;
+
+    /** mutual exclusion primitives to access the remote event loop */
+    struct umutex *mutex;
+    /** watcher */
+    struct upump *upump;
+    /** remote upump_mgr */
+    struct upump_mgr *upump_mgr;
+    /** queue length */
+    uint8_t queue_length;
+    /** queue of messages */
+    struct uqueue uqueue;
+    /** pool of @ref upipe_xfer_msg */
+    struct ulifo msg_pool;
+    /** extra data for the queue and pool structures */
+    uint8_t extra[];
+};
+
+UBASE_FROM_TO(upipe_xfer_mgr, upipe_mgr, upipe_mgr, mgr)
+UBASE_FROM_TO(upipe_xfer_mgr, urefcount, urefcount, urefcount)
 
 /** @internal @This is the private context of a xfer pipe. */
 struct upipe_xfer {
@@ -189,6 +168,11 @@ struct upipe_xfer {
     /** public upipe structure */
     struct upipe upipe;
 
+    /** preallocated message for UPROBE_DEAD */
+    struct upipe_xfer_msg msg_dead;
+    /** preallocated message for UPIPE_XFER_RELEASE */
+    struct upipe_xfer_msg msg_release;
+
     /** watcher */
     struct upump *upump;
     /** remote upump_mgr */
@@ -206,6 +190,95 @@ UPIPE_HELPER_UPUMP(upipe_xfer, upump, upump_mgr)
 
 UBASE_FROM_TO(upipe_xfer, urefcount, urefcount_real, urefcount_real)
 UBASE_FROM_TO(upipe_xfer, urefcount, urefcount_probe, urefcount_probe)
+
+/** @This allocates and initializes a message structure.
+ *
+ * @param mgr xfer_mgr structure
+ * @return pointer to upipe_xfer_msg or NULL in case of allocation error
+ */
+static struct upipe_xfer_msg *upipe_xfer_msg_alloc(struct upipe_mgr *mgr)
+{
+    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
+    struct upipe_xfer_msg *msg = ulifo_pop(&xfer_mgr->msg_pool,
+                                           struct upipe_xfer_msg *);
+    if (unlikely(msg == NULL)) {
+        msg = malloc(sizeof(struct upipe_xfer_msg));
+        if (msg)
+            msg->allocator = UPIPE_XFER_MSG_ALLOCATOR_MALLOC;
+    }
+    else
+        msg->allocator = UPIPE_XFER_MSG_ALLOCATOR_LIFO;
+    if (unlikely(msg == NULL))
+        return NULL;
+    return msg;
+}
+
+/** @This frees a message structure.
+ *
+ * @param mgr xfer_mgr structure
+ * @param msg message structure to free
+ */
+static void upipe_xfer_msg_free(struct upipe_mgr *mgr,
+                                struct upipe_xfer_msg *msg)
+{
+    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
+    switch (msg->allocator) {
+        case UPIPE_XFER_MSG_ALLOCATOR_MALLOC:
+            free(msg);
+            break;
+        case UPIPE_XFER_MSG_ALLOCATOR_LIFO:
+            ulifo_push(&xfer_mgr->msg_pool, msg);
+            break;
+        case UPIPE_XFER_MSG_ALLOCATOR_STATIC:
+            urefcount_release(msg->urefcount);
+            break;
+    }
+}
+
+/** @This sends an allocated message to the remote upump manager.
+ *
+ * @param mgr xfer_mgr structure
+ * @param msg message to send
+ * @param block true if the message must be sent
+ * @return an error code
+ */
+static int upipe_xfer_mgr_send_msg(struct upipe_mgr *mgr,
+                                   struct upipe_xfer_msg *msg,
+                                   bool block)
+{
+    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
+
+    if (msg->allocator == UPIPE_XFER_MSG_ALLOCATOR_STATIC)
+        urefcount_use(msg->urefcount);
+    do {
+        if (likely(uqueue_push(&xfer_mgr->uqueue, msg)))
+            return UBASE_ERR_NONE;
+    } while (block);
+    upipe_xfer_msg_free(mgr, msg);
+    return UBASE_ERR_EXTERNAL;
+}
+
+/** @This sends a message to the remote upump manager.
+ *
+ * @param mgr xfer_mgr structure
+ * @param type type of message
+ * @param upipe_remote optional remote pipe
+ * @paral arg optional argument
+ * @return an error code
+ */
+static int upipe_xfer_mgr_send(struct upipe_mgr *mgr, int type,
+                               struct upipe *upipe_remote,
+                               union upipe_xfer_arg arg)
+{
+    struct upipe_xfer_msg *msg = upipe_xfer_msg_alloc(mgr);
+    if (msg == NULL)
+        return UBASE_ERR_ALLOC;
+
+    msg->type = type;
+    msg->upipe_remote = upipe_remote;
+    msg->arg = arg;
+    return upipe_xfer_mgr_send_msg(mgr, msg, false);
+}
 
 /** @hidden */
 static void upipe_xfer_free(struct urefcount *urefcount_real);
@@ -289,19 +362,9 @@ static void upipe_xfer_probe_free(struct urefcount *urefcount_probe)
     /* We may only access the manager as the rest is not thread-safe. */
     struct upipe_xfer *upipe_xfer =
         upipe_xfer_from_urefcount_probe(urefcount_probe);
-    struct upipe *upipe = upipe_xfer_to_upipe(upipe_xfer);
-
-    struct upipe_xfer_msg *msg = upipe_xfer_msg_alloc(upipe->mgr);
-    if (msg == NULL)
-        return;
-
-    msg->type = UPROBE_DEAD;
 
     urefcount_use(upipe_xfer_to_urefcount_real(upipe_xfer));
-    if (unlikely(!uqueue_push(&upipe_xfer->uqueue, msg))) {
-        urefcount_release(upipe_xfer_to_urefcount_real(upipe_xfer));
-        upipe_xfer_msg_free(upipe->mgr, msg);
-    }
+    while (!uqueue_push(&upipe_xfer->uqueue, &upipe_xfer->msg_dead));
 }
 
 /** @This allocates and initializes an xfer pipe. An xfer pipe allows to
@@ -354,6 +417,14 @@ static struct upipe *_upipe_xfer_alloc(struct upipe_mgr *mgr,
         upipe_xfer_to_urefcount_probe(upipe_xfer);
     upipe_push_probe(upipe_remote, &upipe_xfer->uprobe_remote);
     upipe_xfer->upipe_remote = upipe_remote;
+    upipe_xfer->msg_dead.allocator = UPIPE_XFER_MSG_ALLOCATOR_STATIC;
+    upipe_xfer->msg_dead.type = UPROBE_DEAD;
+    upipe_xfer->msg_dead.urefcount = upipe_xfer_to_urefcount_real(upipe_xfer);
+    upipe_xfer->msg_release.allocator = UPIPE_XFER_MSG_ALLOCATOR_STATIC;
+    upipe_xfer->msg_release.type = UPIPE_XFER_RELEASE;
+    upipe_xfer->msg_release.upipe_remote = upipe_remote;
+    upipe_xfer->msg_release.urefcount =
+        upipe_xfer_to_urefcount_real(upipe_xfer);
     upipe_throw_ready(upipe);
     return upipe;
 
@@ -440,15 +511,21 @@ static int upipe_xfer_control(struct upipe *upipe, int command, va_list args)
                     return UBASE_ERR_ALLOC;
             }
             union upipe_xfer_arg arg = { .string = uri_dup };
-            return upipe_xfer_mgr_send(upipe->mgr, UPIPE_XFER_SET_URI,
-                                       upipe_xfer->upipe_remote, arg);
+            int err = upipe_xfer_mgr_send(upipe->mgr, UPIPE_XFER_SET_URI,
+                                          upipe_xfer->upipe_remote, arg);
+            if (unlikely(!ubase_check(err)))
+                free(uri_dup);
+            return err;
         }
         case UPIPE_SET_OUTPUT: {
             struct upipe_xfer *upipe_xfer = upipe_xfer_from_upipe(upipe);
             struct upipe *output = va_arg(args, struct upipe *);
             union upipe_xfer_arg arg = { .pipe = upipe_use(output) };
-            return upipe_xfer_mgr_send(upipe->mgr, UPIPE_XFER_SET_OUTPUT,
-                                       upipe_xfer->upipe_remote, arg);
+            int err = upipe_xfer_mgr_send(upipe->mgr, UPIPE_XFER_SET_OUTPUT,
+                                          upipe_xfer->upipe_remote, arg);
+            if (unlikely(!ubase_check(err)))
+                upipe_release(output);
+            return err;
         }
 
         case UPIPE_XFER_GET_REMOTE: {
@@ -491,12 +568,8 @@ static void upipe_xfer_free(struct urefcount *urefcount_real)
 static void upipe_xfer_no_ref(struct upipe *upipe)
 {
     struct upipe_xfer *upipe_xfer = upipe_xfer_from_upipe(upipe);
-    union upipe_xfer_arg arg = { .pipe = NULL };
-    if (unlikely(!ubase_check(upipe_xfer_mgr_send(upipe->mgr,
-                                                  UPIPE_XFER_RELEASE,
-                                                  upipe_xfer->upipe_remote,
-                                                  arg))))
-        upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
+    urefcount_use(upipe_xfer_to_urefcount_real(upipe_xfer));
+    upipe_xfer_mgr_send_msg(upipe->mgr, &upipe_xfer->msg_release, true);
 }
 
 /** @This instructs an existing manager to release all structures
@@ -569,34 +642,6 @@ static void upipe_xfer_mgr_worker(struct upump *upump)
     }
 }
 
-/** @This sends a message to the remote upump manager.
- *
- * @param mgr xfer_mgr structure
- * @param type type of message
- * @param upipe_remote optional remote pipe
- * @paral arg optional argument
- * @return an error code
- */
-static int upipe_xfer_mgr_send(struct upipe_mgr *mgr, int type,
-                               struct upipe *upipe_remote,
-                               union upipe_xfer_arg arg)
-{
-    struct upipe_xfer_mgr *xfer_mgr = upipe_xfer_mgr_from_upipe_mgr(mgr);
-    struct upipe_xfer_msg *msg = upipe_xfer_msg_alloc(mgr);
-    if (msg == NULL)
-        return UBASE_ERR_ALLOC;
-
-    msg->type = type;
-    msg->upipe_remote = upipe_remote;
-    msg->arg = arg;
-
-    if (unlikely(!uqueue_push(&xfer_mgr->uqueue, msg))) {
-        upipe_xfer_msg_free(mgr, msg);
-        return UBASE_ERR_EXTERNAL;
-    }
-    return UBASE_ERR_NONE;
-}
-
 /** @This detaches a upipe manager. Real deallocation is only performed after
  * detach. This call is thread-safe and may be performed from any thread.
  *
@@ -609,9 +654,8 @@ static void upipe_xfer_mgr_detach(struct urefcount *urefcount)
     assert(xfer_mgr->upump_mgr != NULL);
     urefcount_clean(urefcount);
 
-    union upipe_xfer_arg arg = { .pipe = NULL };
-    upipe_xfer_mgr_send(upipe_xfer_mgr_to_upipe_mgr(xfer_mgr),
-                        UPIPE_XFER_DETACH, NULL, arg);
+    upipe_xfer_mgr_send_msg(upipe_xfer_mgr_to_upipe_mgr(xfer_mgr),
+                            &xfer_mgr->msg_detach, true);
 }
 
 /** @This attaches a upipe_xfer_mgr to a given event loop. The xfer manager
@@ -733,6 +777,9 @@ struct upipe_mgr *upipe_xfer_mgr_alloc(uint8_t queue_length,
         free(xfer_mgr);
         return NULL;
     }
+    xfer_mgr->msg_detach.allocator = UPIPE_XFER_MSG_ALLOCATOR_STATIC;
+    xfer_mgr->msg_detach.type = UPIPE_XFER_DETACH;
+    xfer_mgr->msg_detach.urefcount = upipe_xfer_mgr_to_urefcount(xfer_mgr);
     xfer_mgr->mutex = umutex_use(mutex);
     xfer_mgr->upump = NULL;
     xfer_mgr->upump_mgr = NULL;
