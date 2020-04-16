@@ -150,6 +150,7 @@ struct upipe_glxplayer {
     bool upipe_ts;
 
     /* managers */
+    struct upump_mgr *upump_mgr;
     struct upipe_mgr *upipe_filter_blend_mgr;
     struct upipe_mgr *upipe_sws_mgr;
     struct upipe_mgr *upipe_qsink_mgr;
@@ -312,7 +313,8 @@ static int upipe_glxplayer_catch_demux_output(struct uprobe *uprobe,
             upipe_set_output(upipe, glxplayer->upipe_dec_qsink);
 
             /* prepare to transfer the queue source */
-            glxplayer->dec_xfer = upipe_xfer_mgr_alloc(XFER_QUEUE, XFER_POOL, NULL);
+            glxplayer->dec_xfer = upipe_xfer_mgr_alloc(
+                glxplayer->upump_mgr, XFER_QUEUE, XFER_POOL, NULL);
             if (unlikely(glxplayer->dec_xfer == NULL)) {
                 upipe_release(upipe_dec_qsrc);
                 return UBASE_ERR_ALLOC;
@@ -762,10 +764,11 @@ fail_umem_mgr:
  * @return false in case of error
  */
 static bool upipe_glxplayer_play(struct upipe_glxplayer *glxplayer,
-                                 struct upump_mgr *upump_mgr, const char *uri,
+                                 const char *uri,
                                  bool upipe_ts)
 {
     struct upipe *upipe_src;
+    struct upump_mgr *upump_mgr = glxplayer->upump_mgr;
     uprobe_pthread_upump_mgr_set(glxplayer->uprobe_logger, upump_mgr);
     uprobe_throw(glxplayer->uprobe_logger, NULL, UPROBE_FREEZE_UPUMP_MGR);
     if (!upipe_ts) {
@@ -886,7 +889,8 @@ static bool upipe_glxplayer_play(struct upipe_glxplayer *glxplayer,
     upipe_attach_upump_mgr(glxplayer->upipe_glx_qsrc);
 
     /* prepare to transfer the source to a new thread */
-    glxplayer->src_xfer = upipe_xfer_mgr_alloc(XFER_QUEUE, XFER_POOL, NULL);
+    glxplayer->src_xfer = upipe_xfer_mgr_alloc(
+        upump_mgr, XFER_QUEUE, XFER_POOL, NULL);
     if (unlikely(glxplayer->src_xfer == NULL)) {
         upipe_release(upipe_src);
         upipe_release(glxplayer->upipe_glx_qsrc);
@@ -978,8 +982,8 @@ int main(int argc, char** argv)
     assert(upump_mgr != NULL);
     struct upipe_glxplayer *glxplayer = upipe_glxplayer_alloc(loglevel);
     assert(glxplayer != NULL);
-
-    upipe_glxplayer_play(glxplayer, upump_mgr, uri, upipe_ts);
+    glxplayer->upump_mgr = upump_mgr;
+    upipe_glxplayer_play(glxplayer, uri, upipe_ts);
 
     upump_mgr_run(upump_mgr, NULL);
 

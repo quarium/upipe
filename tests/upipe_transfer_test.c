@@ -177,7 +177,7 @@ int main(int argc, char **argv)
     assert(upipe_test != NULL);
 
     struct upipe_mgr *upipe_xfer_mgr =
-        upipe_xfer_mgr_alloc(XFER_QUEUE, XFER_POOL, NULL);
+        upipe_xfer_mgr_alloc(upump_mgr, XFER_QUEUE, XFER_POOL, NULL);
     assert(upipe_xfer_mgr != NULL);
 
     upipe_mgr_use(upipe_xfer_mgr);
@@ -190,7 +190,8 @@ int main(int argc, char **argv)
     /* from now on upipe_test shouldn't be accessed from this thread */
     assert(upipe_handle != NULL);
     ubase_assert(upipe_attach_upump_mgr(upipe_handle));
-    ubase_assert(upipe_set_uri(upipe_handle, "toto"));
+    for (unsigned i = 0; i < 2 * XFER_QUEUE; i++)
+        ubase_assert(upipe_set_uri(upipe_handle, "toto"));
     upipe_release(upipe_handle);
 
     upipe_mgr_release(upipe_xfer_mgr);
@@ -199,7 +200,7 @@ int main(int argc, char **argv)
 
     assert(!pthread_join(xfer_thread_id, NULL));
     assert(transferred);
-    assert(uatomic_load(&source_end) == 1);
+    assert(uatomic_load(&source_end) == 2 * XFER_QUEUE);
 
     uprobe_release(uprobe_stdio);
     uprobe_release(uprobe_upump_mgr);

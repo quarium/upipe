@@ -89,12 +89,14 @@ enum upipe_xfer_mgr_command {
  * structure can be allocated in any thread, but must be attached in the
  * same thread as the one running the upump manager.
  *
+ * @param upump_mgr local upump manager
  * @param queue_length maximum length of the internal queues
  * @param msg_pool_depth maximum number of messages in the pool
  * @param mutex mutual exclusion primitives to access the event loop, or NULL
  * @return pointer to manager
  */
-struct upipe_mgr *upipe_xfer_mgr_alloc(uint8_t queue_length,
+struct upipe_mgr *upipe_xfer_mgr_alloc(struct upump_mgr *upump_mgr,
+                                       uint8_t queue_length,
                                        uint16_t msg_pool_depth,
                                        struct umutex *mutex);
 

@@ -404,7 +404,7 @@ int main(int argc, char *argv[])
     uprobe_notice(logger, NULL, "source");
 
     struct upipe_mgr *upipe_xfer_mgr =
-        upipe_xfer_mgr_alloc(XFER_QUEUE, XFER_POOL, NULL);
+        upipe_xfer_mgr_alloc(upump_mgr, XFER_QUEUE, XFER_POOL, NULL);
     assert(upipe_xfer_mgr != NULL);
 
     upipe_mgr_use(upipe_xfer_mgr);
@@ -463,7 +463,8 @@ int main(int argc, char *argv[])
 
     /* worker is linear */
     uprobe_notice(logger, NULL, "linear");
-    upipe_xfer_mgr = upipe_xfer_mgr_alloc(XFER_QUEUE, XFER_POOL, NULL);
+    upipe_xfer_mgr = upipe_xfer_mgr_alloc(
+        upump_mgr, XFER_QUEUE, XFER_POOL, NULL);
     assert(upipe_xfer_mgr != NULL);
 
     upipe_mgr_use(upipe_xfer_mgr);
@@ -524,7 +525,8 @@ int main(int argc, char *argv[])
 
     /* worker is a sink */
     uprobe_notice(logger, NULL, "sink");
-    upipe_xfer_mgr = upipe_xfer_mgr_alloc(XFER_QUEUE, XFER_POOL, NULL);
+    upipe_xfer_mgr = upipe_xfer_mgr_alloc(
+        upump_mgr, XFER_QUEUE, XFER_POOL, NULL);
     assert(upipe_xfer_mgr != NULL);
 
     upipe_mgr_use(upipe_xfer_mgr);

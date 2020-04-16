@@ -211,7 +211,7 @@ struct upipe_mgr *upipe_pthread_xfer_mgr_alloc_named(uint8_t queue_length,
     if (unlikely(upump == NULL))
         goto upipe_pthread_xfer_mgr_alloc_err3;
 
-    struct upipe_mgr *xfer_mgr = upipe_xfer_mgr_alloc(queue_length,
+    struct upipe_mgr *xfer_mgr = upipe_xfer_mgr_alloc(upump_mgr, queue_length,
                                                       msg_pool_depth, mutex);
     if (unlikely(xfer_mgr == NULL))
         goto upipe_pthread_xfer_mgr_alloc_err4;
