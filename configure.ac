@@ -123,6 +123,9 @@ AC_CHECK_HEADERS([ev.h], [
 AC_CHECK_HEADERS([dvbcsa/dvbcsa.h],
                  AM_CONDITIONAL(HAVE_DVBCSA, true),
                  AM_CONDITIONAL(HAVE_DVBCSA, false))
+AC_CHECK_HEADERS([bearssl.h],
+                 AM_CONDITIONAL(HAVE_BEARSSL, true),
+                 AM_CONDITIONAL(HAVE_BEARSSL, false))
 
 PKG_CHECK_UPIPE(TASN1, libtasn1, [libtasn1.h])
 PKG_CHECK_UPIPE(BITSTREAM, bitstream >= 1.4, [bitstream/common.h])
@@ -263,6 +266,7 @@ AC_CONFIG_FILES([Makefile
                  include/upipe-netmap/Makefile
                  include/upipe-dvbcsa/Makefile
                  include/upipe-ebur128/Makefile
+                 include/upipe-bearssl/Makefile
                  lib/Makefile
                  lib/upipe/Makefile
                  lib/upipe/libupipe.pc
@@ -326,6 +330,8 @@ AC_CONFIG_FILES([Makefile
                  lib/upipe-dvbcsa/libupipe_dvbcsa.pc
                  lib/upipe-ebur128/Makefile
                  lib/upipe-ebur128/libupipe_ebur128.pc
+                 lib/upipe-bearssl/Makefile
+                 lib/upipe-bearssl/libupipe_bearssl.pc
                  x86/Makefile
                  x86/config.asm
                  tests/Makefile

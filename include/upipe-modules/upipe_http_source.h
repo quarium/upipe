@@ -38,6 +38,22 @@ extern "C" {
 
 #define UPIPE_HTTP_SRC_SIGNATURE UBASE_FOURCC('h','t','t','p')
 
+/** @This stores a http source hook. */
+struct upipe_http_src_hook {
+    struct {
+    /** called when the transport socket is ready for read */
+        int (*read)(struct upipe_http_src_hook *, int);
+    /** called when the transport socket is ready for write */
+        int (*write)(struct upipe_http_src_hook *, int);
+    } transport;
+    struct {
+        /** called when there is data for read */
+        ssize_t (*read)(struct upipe_http_src_hook *, uint8_t *, size_t);
+        /** called when there is space for data to write */
+        ssize_t (*write)(struct upipe_http_src_hook *, const uint8_t *, size_t);
+    } data;
+};
+
 /** @This extends uprobe_event with specific events for http source. */
 enum uprobe_http_src_event {
     UPROBE_HTTP_SRC_SENTINEL = UPROBE_LOCAL,
@@ -48,6 +64,9 @@ enum uprobe_http_src_event {
     /** request receive an error code response
      * with the error code (unsigned int) */
     UPROBE_HTTP_SRC_ERROR,
+    /** request for scheme hook (struct uref *, struct upipe_http_src_hook **)
+     */
+    UPROBE_HTTP_SRC_SCHEME_HOOK,
 };
 
 /** @This converts an enum uprobe_http_src_event to a string.
@@ -60,6 +79,7 @@ static inline const char *uprobe_http_src_event_str(int event)
     switch ((enum uprobe_http_src_event)event) {
     UBASE_CASE_TO_STR(UPROBE_HTTP_SRC_REDIRECT);
     UBASE_CASE_TO_STR(UPROBE_HTTP_SRC_ERROR);
+    UBASE_CASE_TO_STR(UPROBE_HTTP_SRC_SCHEME_HOOK);
     case UPROBE_HTTP_SRC_SENTINEL: break;
     }
     return NULL;

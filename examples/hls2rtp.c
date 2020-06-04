@@ -31,6 +31,7 @@
 #include <ctype.h>
 #include <syslog.h>
 
+#include <upipe/config.h>
 #include <upipe/ulist.h>
 #include <upipe/uuri.h>
 #include <upipe/upipe.h>
@@ -92,6 +93,9 @@
 #include <upipe-pthread/uprobe_pthread_upump_mgr.h>
 #include <upipe-pthread/upipe_pthread_transfer.h>
 #include <upipe-pthread/umutex_pthread.h>
+#if UPIPE_HAVE_BEARSSL_H
+#include <upipe-bearssl/uprobe_https.h>
+#endif
 
 #include <pthread.h>
 
@@ -278,7 +282,12 @@ static void cmd_quit(void)
 /** @This handles SIGINT and SIGTERM signal. */
 static void sigint_cb(struct upump *upump)
 {
-    cmd_quit();
+    static bool gracefully = true;
+    if (gracefully)
+        cmd_quit();
+    else
+        exit(-1);
+    gracefully = false;
 }
 
 /** @This handles seek.
@@ -404,6 +413,8 @@ static int catch_rewrite_date(struct uprobe *uprobe, struct upipe *upipe,
     uref_clock_get_date_orig(uref, &date, &type);
     if (type == UREF_DATE_NONE)
         return UBASE_ERR_NONE;
+
+    upipe_notice_va(upipe, "date %"PRIu64, date);
 
     if (probe_rewrite_date->video || !video_output.pipe) {
         uint64_t delta = (TS_CLOCK_MAX + date -
@@ -1639,6 +1650,9 @@ int main(int argc, char **argv)
     uprobe_init(&probe_src, catch_src, uprobe_use(main_probe));
     uprobe_release(main_probe);
     main_probe = &probe_src;
+#if UPIPE_HAVE_BEARSSL_H
+    main_probe = uprobe_https_alloc(main_probe);
+#endif
     {
         struct upipe_mgr *upipe_auto_src_mgr = upipe_auto_src_mgr_alloc();
         assert(upipe_auto_src_mgr);
