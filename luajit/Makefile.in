@@ -224,6 +224,7 @@ $(srcdir)/upipe.lua $(srcdir)/ffi-stdarg.lua:
 	  --read-defs $(srcdir)/libc.defs \
 	  --read-defs upipe.defs \
 	  --enum '$(or $(enum_$*),uprobe_)*' \
+	  --struct 'upipe_http_src_hook' \
 	  $(addprefix --prefix ,$(prefix_modules)) \
 	  --load $($*_dlname) \
 	  --load lib$*.static.so \
