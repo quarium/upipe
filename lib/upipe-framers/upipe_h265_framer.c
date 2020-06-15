@@ -2351,6 +2351,14 @@ static void upipe_h265f_begin_annexb(struct upipe *upipe, struct upump **upump_p
         return;
     }
 
+    if (nal_type >= H265NAL_TYPE_RSV_NVCL45 &&
+        nal_type <= H265NAL_TYPE_RSV_NVCL47)
+        return;
+
+    if (nal_type >= H265NAL_TYPE_UNSPEC56 &&
+        nal_type <= H265NAL_TYPE_UNSPEC63)
+        return;
+
     switch (nal_type) {
         case H265NAL_TYPE_PREF_SEI:
             if (!upipe_h265f->au_slice)
