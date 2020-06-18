@@ -48,17 +48,18 @@ extern "C" {
  * @param uref pointer to the uref
  * @param uprobe pipe module printing the messages
  */
-static inline void uref_dump(struct uref *uref, struct uprobe *uprobe)
+static inline void uref_dump_lvl(struct uref *uref, struct uprobe *uprobe,
+                                 enum uprobe_log_level level)
 {
     if (uref->ubuf != NULL)
-        uprobe_dbg_va(uprobe, NULL, "dumping uref %p pointing to ubuf %p",
-                      uref, uref->ubuf);
+        uprobe_log_va(uprobe, NULL, level,
+                      "dumping uref %p pointing to ubuf %p", uref, uref->ubuf);
     else
-        uprobe_dbg_va(uprobe, NULL, "dumping uref %p", uref);
+        uprobe_log_va(uprobe, NULL, level, "dumping uref %p", uref);
 
 #define UREF_DUMP_VOID(name, member)                                        \
     if (uref->flags & member)                                               \
-        uprobe_dbg_va(uprobe, NULL, " - \"" name "\" [void]");
+        uprobe_log_va(uprobe, NULL, level, " - \"" name "\" [void]");
     UREF_DUMP_VOID("f.end", UREF_FLAG_FLOW_END)
     UREF_DUMP_VOID("f.disc", UREF_FLAG_FLOW_DISC)
     UREF_DUMP_VOID("b.start", UREF_FLAG_BLOCK_START)
@@ -71,16 +72,16 @@ static inline void uref_dump(struct uref *uref, struct uprobe *uprobe)
         uref_clock_get_date_##member(uref, &date, &type);                   \
         switch (type) {                                                     \
             case UREF_DATE_PTS:                                             \
-                uprobe_dbg_va(uprobe, NULL, " - \"" name"\" [pts]: %" PRIu64,\
-                              date);                                        \
+                uprobe_log_va(uprobe, NULL, level,                          \
+                              " - \"" name"\" [pts]: %" PRIu64, date);      \
                 break;                                                      \
             case UREF_DATE_DTS:                                             \
-                uprobe_dbg_va(uprobe, NULL, " - \"" name"\" [dts]: %" PRIu64,\
-                              date);                                        \
+                uprobe_log_va(uprobe, NULL, level,                          \
+                              " - \"" name"\" [dts]: %" PRIu64, date);      \
                 break;                                                      \
             case UREF_DATE_CR:                                              \
-                uprobe_dbg_va(uprobe, NULL, " - \"" name"\" [cr]: %" PRIu64,\
-                              date);                                        \
+                uprobe_log_va(uprobe, NULL, level,                          \
+                              " - \"" name"\" [cr]: %" PRIu64, date);       \
                 break;                                                      \
             default:                                                        \
                 break;                                                      \
@@ -93,15 +94,20 @@ static inline void uref_dump(struct uref *uref, struct uprobe *uprobe)
 
 #define UREF_DUMP_UNSIGNED(name, member)                                    \
     if (uref->member != UINT64_MAX)                                         \
-        uprobe_dbg_va(uprobe, NULL, " - \"" name"\" [unsigned]: %" PRIu64,  \
-                      uref->member);
+        uprobe_log_va(uprobe, NULL, level,                                  \
+                      " - \"" name"\" [unsigned]: %" PRIu64, uref->member);
     UREF_DUMP_UNSIGNED("k.dts_pts_delay", dts_pts_delay)
     UREF_DUMP_UNSIGNED("k.cr_dts_delay", cr_dts_delay)
     UREF_DUMP_UNSIGNED("k.rap_cr_delay", rap_cr_delay)
 #undef UREF_DUMP_UNSIGNED
 
     if (uref->udict != NULL)
-        udict_dump(uref->udict, uprobe);
+        udict_dump_level(uref->udict, uprobe, level);
+}
+
+static inline void uref_dump(struct uref *uref, struct uprobe *uprobe)
+{
+    return uref_dump_lvl(uref, uprobe, UPROBE_LOG_DEBUG);
 }
 
 #ifdef __cplusplus
