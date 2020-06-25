@@ -403,6 +403,15 @@ struct ustring uuri_parse_query(struct ustring *str)
     return query;
 }
 
+bool uuri_query_get_param(struct ustring *str,
+                          struct ustring *name,
+                          struct ustring *value)
+{
+    *value = ustring_split_sep(str, "&");
+    *name = ustring_split_sep(value, "=");
+    return !ustring_is_null(*name);
+}
+
 struct ustring uuri_parse_fragment(struct ustring *str)
 {
     struct ustring tmp = *str;
