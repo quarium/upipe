@@ -35,6 +35,7 @@ extern "C" {
 #endif
 
 #include <upipe/ubase.h>
+#include <upipe/uclock.h>
 #include <upipe/uref.h>
 #include <upipe/uref_clock.h>
 #include <upipe/udict_dump.h>
@@ -114,6 +115,59 @@ static inline void uref_dump_lvl(struct uref *uref, struct uprobe *uprobe,
 static inline void uref_dump(struct uref *uref, struct uprobe *uprobe)
 {
     return uref_dump_lvl(uref, uprobe, UPROBE_LOG_DEBUG);
+}
+
+/** @internal @This dumps the clock content of a uref for debug purposes.
+ *
+ * @param uref pointer to the uref
+ * @param uprobe pipe module printing the messages
+ * @param level uprobe log level
+ */
+static inline void uref_clock_dump(struct uref *uref,
+                                   struct uprobe *uprobe,
+                                   enum uprobe_log_level level)
+{
+    const char *pfx;
+
+#define UREF_CLOCK_BD_FMT "%u day(s) %02u:%02u:%02u.%04u + %5u"
+
+#define UREF_CLOCK_BD_ARGS(x) \
+    x.days, x.hours, x.minutes, x.seconds, x.milliseconds, x.ticks
+
+#define UREF_CLOCK_DUMP(Type, TYPE, Clock)                                  \
+        uint64_t Type##_##Clock = UINT64_MAX;                               \
+        uref_clock_get_##Type##_##Clock(uref, &Type##_##Clock);             \
+        if (type_##Clock == UREF_DATE_##TYPE)                               \
+            pfx = " -";                                                     \
+        else                                                                \
+            pfx = "  ";                                                     \
+        struct uclock_brokendown Type##_##Clock##_bd =                      \
+            uclock_breakdown(Type##_##Clock);                               \
+        if (Type##_##Clock != UINT64_MAX)                                   \
+            uprobe_log_va(uprobe, NULL, level,                              \
+                          "%s %4s %3s: " UREF_CLOCK_BD_FMT                  \
+                          " - %" PRIu64 "\n",                               \
+                          pfx, #Clock, #Type,                               \
+                          UREF_CLOCK_BD_ARGS(Type##_##Clock##_bd),          \
+                          Type##_##Clock);                                  \
+
+#define UREF_CLOCK_DUMP_CLOCK(Clock)                                        \
+    uint64_t date_##Clock = UINT64_MAX;                                     \
+    int type_##Clock = UREF_DATE_NONE;                                      \
+    uref_clock_get_date_##Clock(uref, &date_##Clock, &type_##Clock);        \
+    UREF_CLOCK_DUMP(pts, PTS, Clock);                                       \
+    UREF_CLOCK_DUMP(dts, DTS, Clock);                                       \
+    UREF_CLOCK_DUMP(cr, CR, Clock);
+
+    uprobe_log_va(uprobe, NULL, level, "uref %p:", uref);
+UREF_CLOCK_DUMP_CLOCK(orig);
+UREF_CLOCK_DUMP_CLOCK(prog);
+UREF_CLOCK_DUMP_CLOCK(sys);
+
+#undef UREF_CLOCK_DUMP_CLOCK
+#undef UREF_CLOCK_DUMP
+#undef UREF_CLOCK_BD_ARGS
+#undef UREF_CLOCK_BD_FMT
 }
 
 #ifdef __cplusplus
