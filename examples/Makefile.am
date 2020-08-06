@@ -56,6 +56,7 @@ ts_encrypt_LDADD = $(LDADD) $(UPIPEMODULES_LIBS) $(UPUMPEV_LIBS) $(UPIPETS_LIBS)
 ts_encrypt_CFLAGS = $(AM_CFLAGS)
 tssplit_LDADD = $(LDADD) $(UPIPEMODULES_LIBS) $(UPUMPEV_LIBS) $(UPIPETS_LIBS) $(UPIPEFRAMERS_LIBS)
 tssplit_CFLAGS = $(AM_CFLAGS) $(BITSTREAM_CFLAGS)
+frame_LDADD = $(LDADD) $(UPIPEMODULES_LIBS) $(UPUMPEV_LIBS) $(UPIPEFRAMERS_LIBS)
 
 if HAVE_GCRYPT
 ts_encrypt_CFLAGS += $(LIBGCRYPT_CFLAGS)
@@ -76,6 +77,7 @@ noinst_PROGRAMS += upipe_duration
 noinst_PROGRAMS += ts2es
 noinst_PROGRAMS += ts2mpthreemulticat
 noinst_PROGRAMS += tssplit
+noinst_PROGRAMS += frame
 if HAVE_AVFORMAT
 noinst_PROGRAMS += mpthree2rtp
 endif
