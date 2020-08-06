@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
 
 /** maximum level name length */
 #define LEVEL_NAME_LEN  7
@@ -83,6 +84,8 @@
     ANSI_ESC(ANSI_BOLD ANSI_FG_BLACK) "]" ANSI_RESET
 #define TAG_NOCOLOR(Tag) \
     "[" Tag "]"
+
+#define TIME_FORMAT_MAX_SIZE    256
 
 struct level {
     enum uprobe_log_level log_level;
@@ -171,6 +174,19 @@ static int uprobe_stdio_throw(struct uprobe *uprobe, struct upipe *upipe,
 
     flockfile(s);
     while (msg != NULL && *msg != '\0') {
+        if (uprobe_stdio->time_format) {
+            time_t t = time(NULL);
+            struct tm tm;
+            struct tm *tm_p = localtime_r(&t, &tm);
+            char str[TIME_FORMAT_MAX_SIZE];
+            const char *sfx = " ";
+            if (!ubase_strftime_nonliteral(str, sizeof (str),
+                                           uprobe_stdio->time_format, tm_p)) {
+                str[0] = '\0';
+                sfx = "";
+            }
+            fprintf(s, "%s%s", str, sfx);
+        }
         if (colored)
             fprintf(s, LEVEL_COLOR("%s", "%*s") ": ",
                     level->color, LEVEL_NAME_LEN, level->name);
@@ -212,6 +228,7 @@ struct uprobe *uprobe_stdio_init(struct uprobe_stdio *uprobe_stdio,
     uprobe_stdio->stream = stream;
     uprobe_stdio->min_level = min_level;
     uprobe_stdio->colored = isatty(fileno(stream));
+    uprobe_stdio->time_format = NULL;
     uprobe_init(uprobe, uprobe_stdio_throw, next);
     return uprobe;
 }
@@ -223,6 +240,7 @@ struct uprobe *uprobe_stdio_init(struct uprobe_stdio *uprobe_stdio,
 void uprobe_stdio_clean(struct uprobe_stdio *uprobe_stdio)
 {
     assert(uprobe_stdio != NULL);
+    free(uprobe_stdio->time_format);
     struct uprobe *uprobe = uprobe_stdio_to_uprobe(uprobe_stdio);
     uprobe_clean(uprobe);
 }
@@ -236,6 +254,18 @@ void uprobe_stdio_set_color(struct uprobe *uprobe, bool enabled)
 {
     struct uprobe_stdio *uprobe_stdio = uprobe_stdio_from_uprobe(uprobe);
     uprobe_stdio->colored = enabled;
+}
+
+/** @This sets the output time format or disables it.
+ *
+ * @param uprobe pointer to probe
+ * @param format strftime format or NULL to disable
+ */
+void uprobe_stdio_set_time_format(struct uprobe *uprobe, const char *format)
+{
+    struct uprobe_stdio *uprobe_stdio = uprobe_stdio_from_uprobe(uprobe);
+    free(uprobe_stdio->time_format);
+    uprobe_stdio->time_format = format ? strdup(format) : NULL;
 }
 
 #define ARGS_DECL struct uprobe *next, FILE *stream, enum uprobe_log_level min_level

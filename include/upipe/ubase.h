@@ -47,6 +47,7 @@ extern "C" {
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 #ifdef __GNUC__
 
@@ -90,6 +91,11 @@ extern "C" {
 #define UBASE_PRAGMA_CLANG(x) UBASE_PRAGMA(clang x)
 #else
 #define UBASE_PRAGMA_CLANG(x)
+#endif
+#ifdef __GNUC__
+#define UBASE_PRAGMA_GCC(x) UBASE_PRAGMA(GCC x)
+#else
+#define UBASE_PRAGMA_GCC(x)
 #endif
 
 /** @This is used to retrieve the number of items of an array. */
@@ -568,6 +574,27 @@ static inline int ubase_clip(int i, int min, int max)
     else if (i > max) return max;
     else              return i;
 }
+
+/* ignore clang format-nonliteral warning on vsnprintf */
+UBASE_PRAGMA_GCC(diagnostic push)
+UBASE_PRAGMA_GCC(diagnostic ignored "-Wformat-nonliteral")
+
+/** @This wraps strftime call to ignore format-nonliteral warning.
+ *
+ * @param s destination buffer
+ * @param max size of the destination buffer
+ * @param format strftime format string
+ * @param tm pointer to a broken-down time structure
+ * @return strftime error code
+ */
+static inline int ubase_strftime_nonliteral(char *s, size_t max,
+                                            const char *format,
+                                            const struct tm *tm)
+{
+    return strftime(s, max, format, tm);
+}
+
+UBASE_PRAGMA_GCC(diagnostic pop)
 
 
 #ifdef __cplusplus
