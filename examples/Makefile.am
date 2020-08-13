@@ -61,6 +61,7 @@ ts_encrypt_CFLAGS = $(AM_CFLAGS)
 tssplit_LDADD = $(LDADD) $(UPIPEMODULES_LIBS) $(UPUMPEV_LIBS) $(UPIPETS_LIBS) $(UPIPEFRAMERS_LIBS)
 tssplit_CFLAGS = $(AM_CFLAGS) $(BITSTREAM_CFLAGS)
 frame_LDADD = $(LDADD) $(UPIPEMODULES_LIBS) $(UPUMPEV_LIBS) $(UPIPEFRAMERS_LIBS) $(UPIPETS_LIBS)
+dejitter_LDFLAGS = $(AM_CFLAGS) $(UPUMPEV_LIBS)
 
 if HAVE_GCRYPT
 ts_encrypt_CFLAGS += $(GCRYPT_CFLAGS)
@@ -74,6 +75,7 @@ noinst_PROGRAMS += decrypt
 if HAVE_BITSTREAM
 noinst_PROGRAMS += hls2rtp fec rist_rx rist_tx
 endif
+noinst_PROGRAMS += dejitter
 endif
 
 if HAVE_BITSTREAM
