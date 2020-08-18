@@ -73,42 +73,7 @@
 /** desperate PLL drift (1000 ppm - not compliant) */
 #define PLL_DESPERATE (UCLOCK_FREQ / 1000)
 /** debug print periodicity */
-#define PRINT_PERIODICITY (1 * UCLOCK_FREQ)
-
-#define PPM(Value)  (Value * (int64_t)UCLOCK_FREQ / 1000000)
-#define US(Value)   (Value * (int64_t)UCLOCK_FREQ / 1000000)
-
-static const struct uprobe_dejitter_drift default_drifts[] = {
-    /* desperate low +1000 ppm */
-    { INT64_MIN, PPM(1000), US(5000) },
-    /* standard low +25ppm */
-    { US(-20000), PPM(25), US(5000) },
-    /* no drift */
-    { US(0), PPM(0), US(5000) },
-    /* standard high -25ppm */
-    { US(20000), PPM(-25), US(5000) },
-    /* desperate high -1000ppm */
-    { US(100000), PPM(-1000), US(5000) },
-};
-
-#if 0
-static const struct uprobe_dejitter_drift drifts[] = {
-    /* desperate low +1000 ppm */
-    { INT64_MIN, PPM(1000), US(5000) },
-    /* standard low +25ppm */
-    { US(-20000), PPM(25), US(5000) },
-    /* low +1ppm */
-    { US(-1000), PPM(1), US(250) },
-    /* no drift */
-    { US(0), PPM(0), US(250) },
-    /* high -1ppm */
-    { US(1000), PPM(-1), US(250) },
-    /* standard high -25ppm */
-    { US(20000), PPM(-25), US(5000) },
-    /* desperate high -1000ppm */
-    { US(100000), PPM(-1000), US(5000) },
-};
-#endif
+#define PRINT_PERIODICITY (60 * UCLOCK_FREQ)
 
 /** @internal @This catches clock_ref events thrown by pipes.
  *
@@ -192,29 +157,31 @@ static int uprobe_dejitter_clock_ref(struct uprobe *uprobe, struct upipe *upipe,
                          uprobe_dejitter->drift_rate.den;
         drift_rate.den = UCLOCK_FREQ;
 
-        struct {
-            int64_t min;
-            int64_t max;
-            int64_t pll;
-            int64_t slide;
-        } d = {
-            .min = 800 * UCLOCK_FREQ / 1000000,
-            .max = 1000 * UCLOCK_FREQ / 1000000,
-            .pll = 1 * UCLOCK_FREQ / 1000000,
-            .slide = 0,
-        };
-        d.slide = d.min / 2;
+        /* calculate thresholds for drift changes, with optional slide */
+        int64_t desperate_low = DRIFT_DESPERATE_LOW;
+        if (drift_rate.num > UCLOCK_FREQ + PLL_STANDARD)
+            desperate_low += DRIFT_SLIDE;
+        int64_t standard_low = DRIFT_STANDARD_LOW;
+        if (drift_rate.num > UCLOCK_FREQ)
+            standard_low += DRIFT_SLIDE;
+        int64_t standard_high = DRIFT_STANDARD_HIGH;
+        if (drift_rate.num < UCLOCK_FREQ)
+            standard_high -= DRIFT_SLIDE;
+        int64_t desperate_high = DRIFT_DESPERATE_HIGH;
+        if (drift_rate.num < UCLOCK_FREQ - PLL_STANDARD)
+            desperate_high -= DRIFT_SLIDE;
 
-        int64_t current_pll = drift_rate.num - (int64_t)UCLOCK_FREQ;
-        int64_t mult = -error_offset / d.min;
-        int64_t mult2 = (-error_offset - d.slide) / d.min;
-        int64_t mult3 = (error_offset + d.slide) / d.min;
-        if (mult2 * d.pll != current_pll && mult3 * d.pll != current_pll) {
-            if (labs(mult * d.pll) > d.max)
-                mult = (mult >= 0 ? 1 : -1) * d.max / d.pll;
-            drift_rate.num = (int64_t)UCLOCK_FREQ + mult * d.pll;
-        }
-
+        /* calculate wanted drift rate */
+        if (error_offset < desperate_low)
+            drift_rate.num = UCLOCK_FREQ + PLL_DESPERATE;
+        else if (error_offset < standard_low)
+            drift_rate.num = UCLOCK_FREQ + PLL_STANDARD;
+        else if (error_offset > desperate_high)
+            drift_rate.num = UCLOCK_FREQ - PLL_DESPERATE;
+        else if (error_offset > standard_high)
+            drift_rate.num = UCLOCK_FREQ - PLL_STANDARD;
+        else
+            drift_rate.num = UCLOCK_FREQ;
         urational_simplify(&drift_rate);
 
         if (drift_rate.num != uprobe_dejitter->drift_rate.num ||
@@ -236,8 +203,8 @@ static int uprobe_dejitter_clock_ref(struct uprobe *uprobe, struct upipe *upipe,
     }
 
     upipe_verbose_va(upipe,
-            "new ref offset %"PRId64" offset %f error %"PRId64" deviation %g",
-            real_offset, uprobe_dejitter->offset, error_offset, uprobe_dejitter->deviation);
+            "new ref offset %"PRId64" error %"PRId64" deviation %g",
+            real_offset, error_offset, uprobe_dejitter->deviation);
     return UBASE_ERR_NONE;
 }
 
@@ -359,8 +326,6 @@ struct uprobe *uprobe_dejitter_init(struct uprobe_dejitter *uprobe_dejitter,
     uprobe_dejitter->drift_rate.num = uprobe_dejitter->drift_rate.den = 1;
     uprobe_dejitter->last_print = 0;
     uprobe_dejitter->minimum_deviation = 0;
-    uprobe_dejitter->drifts = default_drifts;
-    uprobe_dejitter->nb_drifts = UBASE_ARRAY_SIZE(default_drifts);
     uprobe_dejitter_set(uprobe, enabled, deviation);
     uprobe_init(uprobe, uprobe_dejitter_throw, next);
     return uprobe;

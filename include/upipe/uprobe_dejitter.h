@@ -39,16 +39,6 @@ extern "C" {
 
 #include <stdint.h>
 
-/** @This describes a dejitter threshold. */
-struct uprobe_dejitter_drift {
-    /** threshold value */
-    int64_t min;
-    /** pll to apply from this threshold */
-    int64_t pll;
-    /** additional drift to avoid bouncing from this rate to another */
-    int64_t slide;
-};
-
 /** @This is a super-set of the uprobe structure with additional local
  * members. */
 struct uprobe_dejitter {
@@ -75,10 +65,6 @@ struct uprobe_dejitter {
     uint64_t last_cr_sys;
     /** PLL drift rate */
     struct urational drift_rate;
-    /** configured drifts */
-    const struct uprobe_dejitter_drift *drifts;
-    /** number of configured drifts */
-    unsigned nb_drifts;
 
     /** cr_sys of the last debug print */
     uint64_t last_print;
