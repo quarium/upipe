@@ -40,6 +40,6 @@ class IDeckLink;
  * @return pointer to public uclock structure, or NULL in case of error
  */
 struct uclock *uclock_bmd_sink_alloc(IDeckLink *deckLink,
-                                     struct uclock *uclock_std);
+                                     enum uclock_std_flags flags);
 
 #endif
