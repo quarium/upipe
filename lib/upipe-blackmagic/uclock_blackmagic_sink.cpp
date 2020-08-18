@@ -32,6 +32,8 @@
 
 #include "include/DeckLinkAPI.h"
 
+#define PRINT_PERIODICITY   (UCLOCK_FREQ * 1)
+
 struct uclock_bmd_sink {
     struct urefcount urefcount;
     struct uclock uclock;
@@ -39,6 +41,7 @@ struct uclock_bmd_sink {
     IDeckLinkOutput *deckLinkOutput;
     uint64_t offset;
     uint64_t start_time;
+    bool initializing;
 };
 
 UREFCOUNT_HELPER(uclock_bmd_sink, urefcount, uclock_bmd_sink_free);
@@ -48,24 +51,42 @@ static uint64_t uclock_bmd_sink_now(struct uclock *uclock)
 {
     struct uclock_bmd_sink *uclock_bmd_sink =
         uclock_bmd_sink_from_uclock(uclock);
-
     BMDTimeValue hardware_time = UINT64_MAX, time_in_frame, ticks_per_frame;
+    uint64_t std_clock = uclock_now(uclock_bmd_sink->uclock_std);
 
     if (!uclock_bmd_sink->deckLinkOutput)
-        return UINT64_MAX;
+        return std_clock;
 
     HRESULT res = uclock_bmd_sink->deckLinkOutput->GetHardwareReferenceClock(
             UCLOCK_FREQ, &hardware_time, &time_in_frame, &ticks_per_frame);
     if (res != S_OK)
-        return UINT64_MAX;
+        return std_clock;
 
     if (uclock_bmd_sink->offset == UINT64_MAX) {
         uclock_bmd_sink->offset = hardware_time;
-        uclock_bmd_sink->start_time = uclock_now(uclock_bmd_sink->uclock_std);
+        uclock_bmd_sink->start_time = std_clock;
+        uclock_bmd_sink->initializing = true;
+        return std_clock;
     }
 
-    return (uint64_t)(hardware_time - uclock_bmd_sink->offset) +
+    uint64_t hw_clock =
+        (uint64_t)(hardware_time - uclock_bmd_sink->offset) +
         uclock_bmd_sink->start_time;
+    uint64_t diff =
+        hw_clock > std_clock ? hw_clock - std_clock : std_clock - hw_clock;
+
+    if (uclock_bmd_sink->initializing) {
+        if (std_clock - uclock_bmd_sink->start_time < UCLOCK_FREQ / 100)
+            return std_clock;
+
+        if (diff > UCLOCK_FREQ / 1000) {
+            uclock_bmd_sink->offset = hardware_time;
+            uclock_bmd_sink->start_time = std_clock;
+            return std_clock;
+        }
+        uclock_bmd_sink->initializing = false;
+    }
+    return hw_clock;
 }
 
 static void uclock_bmd_sink_free(struct uclock_bmd_sink *uclock_bmd_sink)
@@ -78,28 +99,24 @@ static void uclock_bmd_sink_free(struct uclock_bmd_sink *uclock_bmd_sink)
 }
 
 struct uclock *uclock_bmd_sink_alloc(IDeckLink *deckLink,
-                                     enum uclock_std_flags flags)
+                                     struct uclock *uclock_std)
 {
     struct uclock_bmd_sink *uclock_bmd_sink =
         (struct uclock_bmd_sink *)malloc(sizeof (*uclock_bmd_sink));
     if (unlikely(!uclock_bmd_sink))
         return NULL;
 
-    if (!deckLink ||
+    if (!deckLink || !uclock_std ||
         deckLink->QueryInterface(
-            IID_IDeckLinkOutput, (void **)&uclock_bmd_sink->deckLinkOutput) !=
-        S_OK) {
+            IID_IDeckLinkOutput,
+            (void **)&uclock_bmd_sink->deckLinkOutput) != S_OK) {
         free(uclock_bmd_sink);
         return NULL;
     }
-    uclock_bmd_sink->uclock_std = uclock_std_alloc(flags);
-    if (unlikely(!uclock_bmd_sink->uclock_std)) {
-        uclock_bmd_sink->deckLinkOutput->Release();
-        free(uclock_bmd_sink);
-        return NULL;
-    }
+    uclock_bmd_sink->uclock_std = uclock_use(uclock_std);
     uclock_bmd_sink->offset = UINT64_MAX;
-    uclock_bmd_sink->start_time = 0;
+    uclock_bmd_sink->start_time = UINT64_MAX;
+    uclock_bmd_sink->initializing = true;
 
     struct uclock *uclock = uclock_bmd_sink_to_uclock(uclock_bmd_sink);
     uclock_bmd_sink_init_urefcount(uclock_bmd_sink);

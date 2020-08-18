@@ -53,6 +53,7 @@
 #include <upipe/upipe_helper_upump_mgr.h>
 #include <upipe/upipe_helper_upump.h>
 #include <upipe/upipe_helper_urefcount.h>
+#include <upipe/upipe_helper_uclock.h>
 #include <upipe-blackmagic/upipe_blackmagic_sink.h>
 
 #include <arpa/inet.h>
@@ -74,9 +75,15 @@ extern "C" {
     #include "sdi.h"
 }
 
+/** minimum number of preroll frame for pre 4k devices requirement */
 #define PREROLL_FRAMES 3
 
 #define DECKLINK_CHANNELS 16
+
+#define PRINT_PERIODICITY (10 * UCLOCK_FREQ)
+
+static int _upipe_bmd_sink_set_timing_adjustment(struct upipe *upipe, int64_t adj);
+static int _upipe_bmd_sink_adjust_timing(struct upipe *upipe, int64_t adj);
 
 static const unsigned max_samples = (uint64_t)48000 * 1001 / 24000;
 static const size_t audio_buf_size = max_samples * DECKLINK_CHANNELS * sizeof(int32_t);
@@ -84,8 +91,10 @@ static const size_t audio_buf_size = max_samples * DECKLINK_CHANNELS * sizeof(in
 class upipe_bmd_sink_frame : public IDeckLinkVideoFrame
 {
 public:
-    upipe_bmd_sink_frame(struct uref *_uref, void *_buffer, long _width, long _height, size_t _stride, uint64_t _pts) :
-                         uref(_uref), data(_buffer), width(_width), height(_height), stride(_stride), pts(_pts) {
+    upipe_bmd_sink_frame(struct uref *_uref, void *_buffer,
+                         long _width, long _height, size_t _stride) :
+        uref(_uref), data(_buffer),
+        width(_width), height(_height), stride(_stride) {
         uatomic_store(&refcount, 1);
     }
 
@@ -163,24 +172,7 @@ private:
 
     uatomic_uint32_t refcount;
     IDeckLinkVideoFrameAncillary *frame_anc;
-
-public:
-    uint64_t pts;
 };
-
-static float dur_to_time(int64_t dur)
-{
-    return (float)dur / UCLOCK_FREQ;
-}
-
-static float pts_to_time(uint64_t pts)
-{
-    static uint64_t first = 0;
-    if (!first)
-        first = pts;
-
-    return dur_to_time(pts - first);
-}
 
 /** @internal @This is the private context of an output of an bmd_sink sink
  * pipe. */
@@ -219,6 +211,15 @@ struct upipe_bmd_sink_sub {
     /** position in the SDI stream */
     uint8_t channel_idx;
 
+    /** buffered input urefs */
+    struct uchain urefs;
+    /** number of buffered urefs */
+    unsigned nb_urefs;
+    /** maximum number of buffered urefs before blocking */
+    unsigned max_urefs;
+    /** blockers */
+    struct uchain blockers;
+
     /** public upipe structure */
     struct upipe upipe;
 };
@@ -240,9 +241,6 @@ struct upipe_bmd_sink {
     /** list of input subpipes */
     struct uchain inputs;
 
-    /** blackmagic sink uclock */
-    struct uclock *uclock_bmd_sink;
-
     /** lock the list of subpipes, they are iterated from the
      * decklink callback */
     pthread_mutex_t lock;
@@ -256,12 +254,16 @@ struct upipe_bmd_sink {
     BMDDisplayMode selectedMode;
     /** output mode **/
     BMDDisplayMode mode;
+    /** support timing adjutment */
+    bool timing_adjustment_support;
 
     /** video frame index (modulo 5) */
     uint8_t frame_idx;
 
     uint64_t start_pts;
     uatomic_uint32_t preroll;
+    /** available frame for prerolling */
+    unsigned frames;
 
     /** vanc/vbi temporary buffer **/
 
@@ -288,16 +290,17 @@ struct upipe_bmd_sink {
     const char *modelName;
 
     /** hardware uclock */
-    struct uclock uclock;
+    struct uclock *uclock;
+    /** system clock */
+    struct uclock *uclock_std;
+    /** system clock request */
+    struct urequest uclock_request;
 
     /** genlock status */
     int genlock_status;
 
     /** time at which we got genlock */
     uint64_t genlock_transition_time;
-
-    /** clock offset to ensure it is increasing */
-    uint64_t offset;
 
     /** frame duration */
     uint64_t ticks_per_frame;
@@ -323,12 +326,34 @@ struct upipe_bmd_sink {
     /** last frame output */
     upipe_bmd_sink_frame *video_frame;
 
+    /** upump manager */
+    struct upump_mgr *upump_mgr;
+
+    /** start timer */
+    struct upump *timer;
+
     /** is opened? */
     bool opened;
+
+    int64_t mean_diff;
+    uint64_t count;
+    uint64_t last_pts;
+    int64_t timing_adjustment;
+    uint64_t last_print;
+
 };
+
+/** @hidden */
+static bool upipe_bmd_sink_sub_output(struct upipe *upipe,
+                                      struct uref *uref,
+                                      struct upump **upump_p);
 
 UPIPE_HELPER_UPIPE(upipe_bmd_sink, upipe, UPIPE_BMD_SINK_SIGNATURE);
 UPIPE_HELPER_UREFCOUNT(upipe_bmd_sink, urefcount, upipe_bmd_sink_free);
+UPIPE_HELPER_UCLOCK(upipe_bmd_sink, uclock_std, uclock_request,
+                    NULL, upipe_throw_provide_request, NULL);
+UPIPE_HELPER_UPUMP_MGR(upipe_bmd_sink, upump_mgr);
+UPIPE_HELPER_UPUMP(upipe_bmd_sink, timer, upump_mgr);
 
 UPIPE_HELPER_UPIPE(upipe_bmd_sink_sub, upipe, UPIPE_BMD_SINK_INPUT_SIGNATURE)
 UPIPE_HELPER_UPUMP_MGR(upipe_bmd_sink_sub, upump_mgr);
@@ -336,11 +361,11 @@ UPIPE_HELPER_UPUMP(upipe_bmd_sink_sub, upump, upump_mgr);
 UPIPE_HELPER_FLOW(upipe_bmd_sink_sub, NULL);
 UPIPE_HELPER_SUBPIPE(upipe_bmd_sink, upipe_bmd_sink_sub, input, sub_mgr, inputs, uchain)
 UPIPE_HELPER_UREFCOUNT(upipe_bmd_sink_sub, urefcount, upipe_bmd_sink_sub_free);
+UPIPE_HELPER_INPUT(upipe_bmd_sink_sub, urefs, nb_urefs, max_urefs, blockers,
+                   upipe_bmd_sink_sub_output);
 
 UBASE_FROM_TO(upipe_bmd_sink, upipe_bmd_sink_sub, pic_subpipe, pic_subpipe)
 UBASE_FROM_TO(upipe_bmd_sink, upipe_bmd_sink_sub, subpic_subpipe, subpic_subpipe)
-
-UBASE_FROM_TO(upipe_bmd_sink, uclock, uclock, uclock)
 
 static void uqueue_uref_flush(struct uqueue *uqueue)
 {
@@ -353,47 +378,45 @@ static void uqueue_uref_flush(struct uqueue *uqueue)
 }
 
 static int upipe_bmd_open_vid(struct upipe *upipe);
-static void output_cb(struct upipe *upipe, uint64_t pts);
+static void output_cb(struct upipe *upipe);
 
 class callback : public IDeckLinkVideoOutputCallback
 {
 public:
-    virtual HRESULT ScheduledFrameCompleted (IDeckLinkVideoFrame *frame, BMDOutputFrameCompletionResult result) {
-        if (uatomic_load(&upipe_bmd_sink->preroll))
-            return S_OK;
+    virtual HRESULT ScheduledFrameCompleted (
+        IDeckLinkVideoFrame *frame,
+        BMDOutputFrameCompletionResult result) {
 
-        if (pts == 0) {
-            /* preroll has ended, set up our counter */
-            pts = ((upipe_bmd_sink_frame*)frame)->pts;
-            pts += PREROLL_FRAMES * upipe_bmd_sink->ticks_per_frame;
-        }
-#if 0
-        static const char *Result_str[] = {
+        bool prerolling = uatomic_load(&upipe_bmd_sink->preroll);
+
+#if 1
+        static const char *result_strs[] = {
             "completed",
             "late",
             "dropped",
             "flushed",
             "?",
         };
+        const char *result_str = result_strs[result > 4 ? 4 : result];
 
-        BMDTimeValue val;
-        if (upipe_bmd_sink->deckLinkOutput->GetFrameCompletionReferenceTimestamp(frame, UCLOCK_FREQ, &val) != S_OK)
-            val = 0;
-
-        uint64_t now = uclock_now(&upipe_bmd_sink->uclock);
         __sync_synchronize();
-        uint64_t fpts = ((upipe_bmd_sink_frame*)frame)->pts;
-        int64_t diff = now - fpts - upipe_bmd_sink->ticks_per_frame;
 
-        upipe_notice_va(&upipe_bmd_sink->upipe,
-                "%p Frame %s (%.2f ms) - delay %.2f ms", frame,
-                Result_str[(result > 4) ? 4 : result], dur_to_time(1000 * (val - prev)), dur_to_time(1000 * diff));
-        prev = val;
+        void (*print)(struct upipe *, const char *, ...);
+        if (result)
+            print = upipe_warn_va;
+        else
+            print = upipe_verbose_va;
+
+        print(&upipe_bmd_sink->upipe,
+              "%p Frame %s %s(%.2f ms, %.2f ms - %.2f ms, %.2f ms)",
+              frame, result_str,
+              prerolling ? "preroll " : "");
 #endif
 
         /* next frame */
-        output_cb(&upipe_bmd_sink->pic_subpipe.upipe, pts);
-        pts += upipe_bmd_sink->ticks_per_frame;
+        if (!prerolling)
+            output_cb(&upipe_bmd_sink->pic_subpipe.upipe);
+
         return S_OK;
     }
 
@@ -405,7 +428,6 @@ public:
     callback(struct upipe_bmd_sink *upipe_bmd_sink_) {
         upipe_bmd_sink = upipe_bmd_sink_;
         uatomic_store(&refcount, 1);
-        prev = 0;
     }
 
     ~callback(void) {
@@ -429,11 +451,9 @@ public:
 
 private:
     uatomic_uint32_t refcount;
-    BMDTimeValue prev;
     struct upipe_bmd_sink *upipe_bmd_sink;
-
-public:
-    uint64_t pts;
+    int64_t first_timestamp;
+    int64_t prev_timestamp;
 };
 
 #ifdef UPIPE_HAVE_LIBZVBI_H
@@ -527,8 +547,9 @@ static void upipe_bmd_sink_sub_init(struct upipe *upipe,
 
     pthread_mutex_lock(&upipe_bmd_sink->lock);
     upipe_bmd_sink_sub_init_sub(upipe);
+    upipe_bmd_sink_sub_init_input(upipe);
 
-    static const uint8_t length = 255;
+    static const uint8_t length = PREROLL_FRAMES;
     upipe_bmd_sink_sub->uqueue_extra = malloc(uqueue_sizeof(length));
     assert(upipe_bmd_sink_sub->uqueue_extra);
     uqueue_init(&upipe_bmd_sink_sub->uqueue, length, upipe_bmd_sink_sub->uqueue_extra);
@@ -537,6 +558,7 @@ static void upipe_bmd_sink_sub_init(struct upipe *upipe,
     upipe_bmd_sink_sub_init_upump_mgr(upipe);
     upipe_bmd_sink_sub_init_upump(upipe);
     upipe_bmd_sink_sub->sound = !static_pipe;
+    upipe_bmd_sink_sub_set_max_length(upipe, PREROLL_FRAMES);
 
     upipe_throw_ready(upipe);
     pthread_mutex_unlock(&upipe_bmd_sink->lock);
@@ -554,6 +576,7 @@ static void upipe_bmd_sink_sub_free(struct upipe *upipe)
     upipe_bmd_sink_sub_clean_sub(upipe);
     pthread_mutex_unlock(&upipe_bmd_sink->lock);
 
+    upipe_bmd_sink_sub_clean_input(upipe);
     upipe_bmd_sink_sub_clean_upump(upipe);
     upipe_bmd_sink_sub_clean_upump_mgr(upipe);
     uref_free(upipe_bmd_sink_sub->uref);
@@ -662,7 +685,7 @@ static unsigned upipe_bmd_sink_sub_sound_get_samples(struct upipe *upipe,
 }
 
 static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
-    uint64_t pts, struct uref *uref)
+                                             struct uref *uref)
 {
     struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
     int w = upipe_bmd_sink->displayMode->GetWidth();
@@ -678,7 +701,7 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
 
         /* increase refcount before outputting this frame */
         ULONG ref = upipe_bmd_sink->video_frame->AddRef();
-        upipe_dbg_va(upipe, "REUSING FRAME %p : %lu", upipe_bmd_sink->video_frame, ref);
+        upipe_warn_va(upipe, "REUSING FRAME %p : %lu", upipe_bmd_sink->video_frame, ref);
         return upipe_bmd_sink->video_frame;
     }
 
@@ -693,7 +716,7 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
         return NULL;
     }
     upipe_bmd_sink_frame *video_frame = new upipe_bmd_sink_frame(uref,
-            (void*)plane, w, h, stride, pts);
+            (void*)plane, w, h, stride);
     if (!video_frame) {
         uref_free(uref);
         return NULL;
@@ -741,8 +764,7 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
     struct upipe_bmd_sink_sub *subpic_sub = &upipe_bmd_sink->subpic_subpipe;
 
     uint64_t vid_pts = 0;
-    uref_clock_get_pts_sys(uref, &vid_pts);
-    vid_pts += upipe_bmd_sink->pic_subpipe.latency;
+    uref_clock_get_cr_sys(uref, &vid_pts);
 
     for (;;) {
         /* buffered uref if any */
@@ -762,8 +784,7 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
         }
 
         uint64_t subpic_pts = 0;
-        uref_clock_get_pts_sys(subpic, &subpic_pts);
-        subpic_pts += subpic_sub->latency;
+        uref_clock_get_cr_sys(subpic, &subpic_pts);
         //printf("\n SUBPIC PTS %" PRIu64" \n", subpic_pts );
 
         /* Delete old urefs */
@@ -808,16 +829,102 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
     return video_frame;
 }
 
-static void schedule_frame(struct upipe *upipe, struct uref *uref, uint64_t pts)
+static void schedule_frame(struct upipe *upipe, bool prerolling)
 {
     HRESULT result;
     struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_sub_mgr(upipe->mgr);
+    struct upipe_bmd_sink_sub *upipe_bmd_sink_sub =
+        upipe_bmd_sink_sub_from_upipe(upipe);
+    struct uref *uref = uqueue_pop(&upipe_bmd_sink_sub->uqueue, struct uref *);
 
-    upipe_bmd_sink_frame *video_frame = get_video_frame(&upipe_bmd_sink->upipe, pts, uref);
-    if (!video_frame)
+    upipe_bmd_sink_frame *video_frame =
+        get_video_frame(&upipe_bmd_sink->upipe, uref);
+    if (!video_frame) {
+        abort();
         return;
+    }
 
-    result = upipe_bmd_sink->deckLinkOutput->ScheduleVideoFrame(video_frame, pts, upipe_bmd_sink->ticks_per_frame, UCLOCK_FREQ);
+    uint64_t pts_sys = UINT64_MAX;
+    if (uref)
+        uref_clock_get_pts_sys(uref, &pts_sys);
+
+    uint64_t ticks_per_frame = upipe_bmd_sink->ticks_per_frame;
+    uint64_t pts;
+    if (upipe_bmd_sink->last_pts == UINT64_MAX)
+        pts = upipe_bmd_sink->start_pts;
+    else
+        pts = upipe_bmd_sink->last_pts + ticks_per_frame;
+    upipe_bmd_sink->last_pts = pts;
+
+    uint64_t now = UINT64_MAX;
+    if (upipe_bmd_sink->uclock_std)
+        now = uclock_now(upipe_bmd_sink->uclock_std);
+
+    if (!prerolling) {
+        int64_t current_diff = (int64_t)now - (int64_t)pts;
+        int64_t diff = (int64_t)ticks_per_frame - current_diff;
+        static const int64_t divider = 500;
+
+        int64_t mean_diff =
+            ((upipe_bmd_sink->mean_diff * divider) + diff) / (divider + 1);
+
+//        int64_t error = 2 * mean_diff - upipe_bmd_sink->mean_diff;
+//        int64_t adj = 0;
+//        if (abs(error) > abs(mean_diff)) {
+//            if (upipe_bmd_sink->count++ > divider) {
+//                /* ad +/- 5ppm */
+//                adj = 5 * (error >= 0 ? -1 : 1);
+//                upipe_bmd_sink->count = 0;
+//            }
+//        }
+        upipe_bmd_sink->mean_diff = mean_diff;
+
+        int64_t ppm = 0;
+        if (uref) {
+            uref_clock_set_cr_sys(uref, now);
+            upipe_throw_clock_ref(upipe, uref, pts, 0);
+            upipe_throw_clock_ts(upipe, uref);
+            struct urational drift;
+            if (ubase_check(uref_clock_get_rate(uref, &drift))) {
+                static int64_t count = 0;
+                if (count > 100) {
+                    ppm = 1000000 - 1000000 * drift.num / drift.den;
+                    count = 0;
+                }
+                else
+                    count++;
+            }
+        }
+        if (now > upipe_bmd_sink->last_print + PRINT_PERIODICITY) {
+            upipe_notice_va(upipe, "target %.3f ms,"
+                            " current %.3f ms,"
+                            " diff %.3f ms,"
+                            " mean_diff %.3f ms,"
+                            " pts_diff %.3f ms,"
+                            " ppm %" PRIi64 ","
+                            "",
+                            ticks_per_frame * 1000. / UCLOCK_FREQ,
+                            current_diff * 1000. / UCLOCK_FREQ,
+                            diff * 1000. / UCLOCK_FREQ,
+                            upipe_bmd_sink->mean_diff * 1000. / UCLOCK_FREQ,
+                            ((int64_t)now - (int64_t)pts_sys) * 1000. / UCLOCK_FREQ,
+                            ppm);
+        }
+
+        if (ppm != INT64_MAX)
+            _upipe_bmd_sink_adjust_timing(&upipe_bmd_sink->upipe, -ppm);
+    }
+    else {
+        upipe_bmd_sink->mean_diff = 0;
+        upipe_bmd_sink->count = 0;
+        upipe_bmd_sink->last_print = 0;
+    }
+
+    if (now > upipe_bmd_sink->last_print + PRINT_PERIODICITY)
+        upipe_bmd_sink->last_print = now;
+
+    result = upipe_bmd_sink->deckLinkOutput->ScheduleVideoFrame(
+        video_frame, pts, ticks_per_frame, UCLOCK_FREQ);
     video_frame->Release();
 
     if( result != S_OK )
@@ -855,23 +962,13 @@ static void schedule_frame(struct upipe *upipe, struct uref *uref, uint64_t pts)
             (float)(1000 * buffered) / 48000, (float) 1000 * vbuffered / 25);
 }
 
-static void output_cb(struct upipe *upipe, uint64_t pts)
+static void output_cb(struct upipe *upipe)
 {
-    struct upipe_bmd_sink_sub *upipe_bmd_sink_sub =
-        upipe_bmd_sink_sub_from_upipe(upipe);
     struct upipe_bmd_sink *upipe_bmd_sink =
         upipe_bmd_sink_from_sub_mgr(upipe->mgr);
 
-    uint64_t now = uclock_now(&upipe_bmd_sink->uclock);
-    if (0) upipe_notice_va(upipe, "PTS %.2f - %.2f - %u pics",
-            pts_to_time(pts),
-            dur_to_time(now - pts),
-            uqueue_length(&upipe_bmd_sink_sub->uqueue));
-
-    /* Find a picture */
-    struct uref *uref = uqueue_pop(&upipe_bmd_sink_sub->uqueue, struct uref *);
-
-    schedule_frame(upipe, uref, pts);
+    uint64_t now = uclock_now(upipe_bmd_sink->uclock);
+    schedule_frame(upipe, false);
 
     /* Restart playback 4s after genlock transition */
     if (upipe_bmd_sink->genlock_transition_time) {
@@ -879,7 +976,9 @@ static void output_cb(struct upipe *upipe, uint64_t pts)
             upipe_warn(upipe, "restarting playback after genlock synchronization");
             upipe_bmd_sink->genlock_transition_time = 0;
             upipe_bmd_sink->deckLinkOutput->StopScheduledPlayback(0, NULL, 0);
-            upipe_bmd_sink->deckLinkOutput->StartScheduledPlayback(pts, UCLOCK_FREQ, 1.0);
+            upipe_bmd_sink->deckLinkOutput->StartScheduledPlayback(
+                upipe_bmd_sink->last_pts + upipe_bmd_sink->ticks_per_frame,
+                UCLOCK_FREQ, 1.0);
         }
     }
 
@@ -888,17 +987,75 @@ static void output_cb(struct upipe *upipe, uint64_t pts)
     if (genlock_status == UPIPE_BMD_SINK_GENLOCK_UNLOCKED) {
         if (upipe_bmd_sink->genlock_status == UPIPE_BMD_SINK_GENLOCK_LOCKED) {
             upipe_warn(upipe, "genlock synchronized");
-            upipe_bmd_sink->genlock_transition_time = uclock_now(&upipe_bmd_sink->uclock);
+            upipe_bmd_sink->genlock_transition_time =
+                uclock_now(upipe_bmd_sink->uclock);
         }
     }
+}
+
+/** @internal @This starts the playback.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_bmd_sink_start(struct upipe *upipe)
+{
+    struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
+
+    upipe_notice(upipe, "Starting playback");
+    if (upipe_bmd_sink->deckLinkOutput->EndAudioPreroll() != S_OK)
+        upipe_err_va(upipe, "End preroll failed");
+    upipe_bmd_sink->deckLinkOutput->StartScheduledPlayback(
+        upipe_bmd_sink->start_pts, UCLOCK_FREQ, 1.0);
+}
+
+/** @internal @This is called when we need to start.
+ *
+ * @param upump description structure of the timer
+ */
+static void upipe_bmd_sink_schedule_start_cb(struct upump *upump)
+{
+    struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
+    upipe_bmd_sink_start(upipe);
+}
+
+/** @internal @This schedules a restart if needed.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_bmd_sink_schedule_start(struct upipe *upipe)
+{
+    struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
+    bool active;
+    if (upipe_bmd_sink->start_pts == UINT64_MAX ||
+        !upipe_bmd_sink->deckLinkOutput ||
+        upipe_bmd_sink->deckLinkOutput->IsScheduledPlaybackRunning(&active)
+        != S_OK || active ||
+        uatomic_load(&upipe_bmd_sink->preroll))
+        return;
+
+    upipe_bmd_sink_check_upump_mgr(upipe);
+    if (upipe_bmd_sink->upump_mgr && upipe_bmd_sink->uclock) {
+        uint64_t now = uclock_now(upipe_bmd_sink->uclock);
+        if (now < upipe_bmd_sink->start_pts) {
+            upipe_bmd_sink_wait_timer(upipe,
+                                      upipe_bmd_sink->start_pts - now,
+                                      upipe_bmd_sink_schedule_start_cb);
+            return;
+        }
+    }
+    upipe_bmd_sink_start(upipe);
 }
 
 /** @internal @This handles input uref.
  *
  * @param upipe description structure of the pipe
  * @param uref uref structure
+ * @param upump_p reference to source pump
+ * @return true is the uref was outputted
  */
-static bool upipe_bmd_sink_sub_output(struct upipe *upipe, struct uref *uref)
+static bool upipe_bmd_sink_sub_output(struct upipe *upipe,
+                                      struct uref *uref,
+                                      struct upump **upump_p)
 {
     struct upipe_bmd_sink *upipe_bmd_sink =
         upipe_bmd_sink_from_sub_mgr(upipe->mgr);
@@ -922,62 +1079,44 @@ static bool upipe_bmd_sink_sub_output(struct upipe *upipe, struct uref *uref)
         return true;
     }
 
+    if (!upipe_bmd_sink->deckLink ||
+        !upipe_bmd_sink->uclock_std || !upipe_bmd_sink->uclock) {
+        upipe_warn(upipe, "sink is not ready");
+        return false;
+    }
+
+    uint64_t pts;
+    if (unlikely(!ubase_check(uref_clock_get_pts_sys(uref, &pts)))) {
+        upipe_err(upipe, "Could not read pts");
+        uref_free(uref);
+        return true;
+    }
+
+    if (unlikely(!uqueue_push(&upipe_bmd_sink_sub->uqueue, uref)))
+        return false;
+
     /* output is controlled by the pic subpipe */
     if (upipe_bmd_sink_sub != &upipe_bmd_sink->pic_subpipe)
-        return false;
+        return true;
 
-    /* preroll is done, buffer and let the callback do the rest */
     if (!uatomic_load(&upipe_bmd_sink->preroll))
-        return false;
+        return true;
 
-    uint64_t pts = upipe_bmd_sink->start_pts;
-    if (unlikely(!pts)) {
-        /* First PTS is set to the first picture PTS */
-        if (unlikely(!ubase_check(uref_clock_get_pts_sys(uref, &pts)))) {
-            upipe_err(upipe, "Could not read pts");
-            uref_free(uref);
-            return true;
-        }
-        pts += upipe_bmd_sink_sub->latency;
+    if (upipe_bmd_sink->start_pts == UINT64_MAX) {
         upipe_bmd_sink->start_pts = pts;
-
-        return false;
+        upipe_bmd_sink->last_pts = UINT64_MAX;
     }
 
-    uint64_t now = uclock_now(&upipe_bmd_sink->uclock);
-
-    if (now < upipe_bmd_sink->start_pts) {
-        upipe_notice_va(upipe, "%.2f < %.2f, buffering",
-            pts_to_time(now), pts_to_time(upipe_bmd_sink->start_pts));
-        return false;
-    }
-
-    /* next PTS */
-    pts += (PREROLL_FRAMES - uatomic_load(&upipe_bmd_sink->preroll)) *
-        upipe_bmd_sink->ticks_per_frame;
+    if (++upipe_bmd_sink->frames < PREROLL_FRAMES)
+        return true;
 
     /* We're done buffering and now prerolling,
-     * push the uref we just got into the fifo and
      * get the first one we buffered */
-    if (!uqueue_push(&upipe_bmd_sink_sub->uqueue, uref)) {
-        upipe_err_va(upipe, "Buffer is full");
-        uref_free(uref);
+    for (unsigned i = 0; i < PREROLL_FRAMES; i++) {
+        schedule_frame(upipe, true);
+        uatomic_fetch_sub(&upipe_bmd_sink->preroll, 1);
     }
-    uref = uqueue_pop(&upipe_bmd_sink_sub->uqueue, struct uref *);
-    if (!uref) {
-        upipe_err_va(upipe, "Buffer is empty");
-    }
-
-    upipe_notice_va(upipe, "PREROLLING %.2f", pts_to_time(pts));
-    schedule_frame(upipe, uref, pts);
-
-    if (uatomic_fetch_sub(&upipe_bmd_sink->preroll, 1) == 1) {
-        upipe_notice(upipe, "Starting playback");
-        if (upipe_bmd_sink->deckLinkOutput->EndAudioPreroll() != S_OK)
-            upipe_err_va(upipe, "End preroll failed");
-        upipe_bmd_sink->deckLinkOutput->StartScheduledPlayback(upipe_bmd_sink->start_pts, UCLOCK_FREQ, 1.0);
-    }
-
+    upipe_bmd_sink_schedule_start(upipe_bmd_sink_to_upipe(upipe_bmd_sink));
     return true;
 }
 
@@ -988,24 +1127,23 @@ static bool upipe_bmd_sink_sub_output(struct upipe *upipe, struct uref *uref)
  * @param upump_p reference to upump structure
  */
 static void upipe_bmd_sink_sub_input(struct upipe *upipe, struct uref *uref,
-                                      struct upump **upump_p)
+                                     struct upump **upump_p)
 {
-    struct upipe_bmd_sink *upipe_bmd_sink =
-        upipe_bmd_sink_from_sub_mgr(upipe->mgr);
     struct upipe_bmd_sink_sub *upipe_bmd_sink_sub =
         upipe_bmd_sink_sub_from_upipe(upipe);
 
-    if (!upipe_bmd_sink->deckLink) {
-        upipe_err_va(upipe, "DeckLink card not ready");
-        uref_free(uref);
-        return;
+    if (!upipe_bmd_sink_sub_check_input(upipe)) {
+        upipe_bmd_sink_sub_hold_input(upipe, uref);
+        upipe_bmd_sink_sub_block_input(upipe, upump_p);
     }
-
-    if (!upipe_bmd_sink_sub_output(upipe, uref))
-        if (!uqueue_push(&upipe_bmd_sink_sub->uqueue, uref)) {
-            upipe_err(upipe, "Couldn't queue uref");
-            uref_free(uref);
-        }
+    else if (!upipe_bmd_sink_sub_output(upipe, uref, upump_p)) {
+        //fprintf(stderr, "block input!\n");
+        upipe_bmd_sink_sub_hold_input(upipe, uref);
+        upipe_bmd_sink_sub_block_input(upipe, upump_p);
+        if (upipe_bmd_sink_sub->upump)
+            upump_start(upipe_bmd_sink_sub->upump);
+        upipe_use(upipe);
+    }
 }
 
 uint32_t upipe_bmd_mode_from_flow_def(struct upipe *upipe, struct uref *flow_def)
@@ -1088,6 +1226,7 @@ next:
     }
     bmdMode = mode->GetDisplayMode();
 
+    _upipe_bmd_sink_set_timing_adjustment(&upipe_bmd_sink->upipe, 127);
 end:
     if (mode)
         mode->Release();
@@ -1219,23 +1358,18 @@ static int upipe_bmd_sink_sub_set_flow_def(struct upipe *upipe,
  * @param args arguments of the command
  * @return an error code
  */
-static int upipe_bmd_sink_sub_control(struct upipe *upipe,
-                                     int command, va_list args)
+static int upipe_bmd_sink_sub_control_real(struct upipe *upipe,
+                                           int command, va_list args)
 {
     UBASE_HANDLED_RETURN(
         upipe_bmd_sink_sub_control_super(upipe, command, args));
+    UBASE_HANDLED_RETURN(upipe_control_provide_request(upipe, command, args));
     switch (command) {
         case UPIPE_ATTACH_UPUMP_MGR: {
             upipe_bmd_sink_sub_set_upump(upipe, NULL);
             UBASE_RETURN(upipe_bmd_sink_sub_attach_upump_mgr(upipe))
             return UBASE_ERR_NONE;
         }
-        case UPIPE_REGISTER_REQUEST: {
-            struct urequest *request = va_arg(args, struct urequest *);
-            return upipe_throw_provide_request(upipe, request);
-        }
-        case UPIPE_UNREGISTER_REQUEST:
-            return UBASE_ERR_NONE;
         case UPIPE_SET_FLOW_DEF: {
             struct uref *flow_def = va_arg(args, struct uref *);
             return upipe_bmd_sink_sub_set_flow_def(upipe, flow_def);
@@ -1244,6 +1378,54 @@ static int upipe_bmd_sink_sub_control(struct upipe *upipe,
         default:
             return UBASE_ERR_UNHANDLED;
     }
+}
+
+static void upipe_bmd_sink_sub_push_cb(struct upump *upump)
+{
+    struct upipe *upipe = upump_get_opaque(upump, struct upipe *);
+    if (upipe_bmd_sink_sub_check_input(upipe)) {
+        upump_stop(upump);
+        return;
+    }
+
+    upipe_bmd_sink_sub_output_input(upipe);
+    upipe_bmd_sink_sub_unblock_input(upipe);
+    if (upipe_bmd_sink_sub_check_input(upipe)) {
+        upump_stop(upump);
+        upipe_release(upipe);
+    }
+}
+
+static int upipe_bmd_sink_sub_check(struct upipe *upipe)
+{
+    struct upipe_bmd_sink_sub *upipe_bmd_sink_sub =
+        upipe_bmd_sink_sub_from_upipe(upipe);
+
+    UBASE_RETURN(upipe_bmd_sink_sub_check_upump_mgr(upipe));
+    if (upipe_bmd_sink_sub->upump_mgr) {
+        if (!upipe_bmd_sink_sub->upump) {
+            struct upump *upump = uqueue_upump_alloc_push(
+                &upipe_bmd_sink_sub->uqueue,
+                upipe_bmd_sink_sub->upump_mgr,
+                upipe_bmd_sink_sub_push_cb, upipe,
+                upipe->refcount);
+            if (unlikely(!upump))
+                return UBASE_ERR_ALLOC;
+
+            upipe_bmd_sink_sub_set_upump(upipe, upump);
+            if (!upipe_bmd_sink_sub_check_input(upipe))
+                upump_start(upump);
+        }
+    }
+
+    return UBASE_ERR_NONE;
+}
+
+static int upipe_bmd_sink_sub_control(struct upipe *upipe,
+                                      int command, va_list args)
+{
+    UBASE_RETURN(upipe_bmd_sink_sub_control_real(upipe, command, args));
+    return upipe_bmd_sink_sub_check(upipe);
 }
 
 static struct upipe *upipe_bmd_sink_sub_alloc(struct upipe_mgr *mgr,
@@ -1312,39 +1494,6 @@ static void upipe_bmd_sink_init_sub_mgr(struct upipe *upipe)
     sub_mgr->upipe_mgr_control = NULL;
 }
 
-/** @This returns the Blackmagic hardware output time.
- *
- * @param uclock utility structure passed to the module
- * @return current hardware output time in 27 MHz ticks
- */
-static uint64_t uclock_bmd_sink_now(struct uclock *uclock)
-{
-    struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_uclock(uclock);
-    struct upipe *upipe = &upipe_bmd_sink->upipe;
-
-    BMDTimeValue hardware_time = UINT64_MAX, time_in_frame, ticks_per_frame;
-
-    if (!upipe_bmd_sink->deckLinkOutput) {
-        upipe_err_va(upipe, "No output configured");
-        return UINT64_MAX;
-    }
-
-
-    HRESULT res = upipe_bmd_sink->deckLinkOutput->GetHardwareReferenceClock(
-            UCLOCK_FREQ, &hardware_time, &time_in_frame, &ticks_per_frame);
-    if (res != S_OK) {
-        upipe_err_va(upipe, "\t\tCouldn't read hardware clock: 0x%08x", res);
-        hardware_time = 0;
-    }
-
-    hardware_time += upipe_bmd_sink->offset;
-
-    if (0) upipe_notice_va(upipe, "CLOCK THR 0x%llx VAL %" PRIu64,
-        (unsigned long long)pthread_self(), (uint64_t)hardware_time);
-
-    return (uint64_t)hardware_time;
-}
-
 /** @internal @This allocates a bmd_sink pipe.
  *
  * @param mgr common management structure
@@ -1354,8 +1503,8 @@ static uint64_t uclock_bmd_sink_now(struct uclock *uclock)
  * @return pointer to upipe or NULL in case of allocation error
  */
 static struct upipe *upipe_bmd_sink_alloc(struct upipe_mgr *mgr,
-                                      struct uprobe *uprobe,
-                                      uint32_t signature, va_list args)
+                                          struct uprobe *uprobe,
+                                          uint32_t signature, va_list args)
 {
     if (signature != UPIPE_BMD_SINK_SIGNATURE)
         return NULL;
@@ -1376,6 +1525,9 @@ static struct upipe *upipe_bmd_sink_alloc(struct upipe_mgr *mgr,
     upipe_bmd_sink_init_sub_inputs(upipe);
     upipe_bmd_sink_init_sub_mgr(upipe);
     upipe_bmd_sink_init_urefcount(upipe);
+    upipe_bmd_sink_init_uclock(upipe);
+    upipe_bmd_sink_init_upump_mgr(upipe);
+    upipe_bmd_sink_init_timer(upipe);
 
     pthread_mutex_init(&upipe_bmd_sink->lock, NULL);
 
@@ -1386,15 +1538,15 @@ static struct upipe *upipe_bmd_sink_alloc(struct upipe_mgr *mgr,
                             &upipe_bmd_sink->sub_mgr, uprobe_subpic, true);
 
     upipe_bmd_sink->audio_buf = (int32_t*)malloc(audio_buf_size);
-
-    upipe_bmd_sink->uclock.refcount = upipe->refcount;
-    upipe_bmd_sink->uclock.uclock_now = uclock_bmd_sink_now;
-    upipe_bmd_sink->uclock_bmd_sink = NULL;
+    upipe_bmd_sink->uclock = NULL;
     upipe_bmd_sink->card_idx = -1;
     upipe_bmd_sink->card_topo = -1;
     upipe_bmd_sink->opened = false;
     upipe_bmd_sink->mode = bmdModeUnknown;
     upipe_bmd_sink->selectedMode = bmdModeUnknown;
+    upipe_bmd_sink->timing_adjustment_support = false;
+    upipe_bmd_sink->start_pts = UINT64_MAX;
+    upipe_bmd_sink->timing_adjustment = INT64_MAX;
 
     upipe_throw_ready(upipe);
     return upipe;
@@ -1405,19 +1557,16 @@ static void upipe_bmd_stop(struct upipe *upipe)
     struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
     IDeckLinkOutput *deckLinkOutput = upipe_bmd_sink->deckLinkOutput;
 
-    upipe_bmd_sink->start_pts = 0;
-
+    upipe_bmd_sink->start_pts = UINT64_MAX;
     uatomic_store(&upipe_bmd_sink->preroll, PREROLL_FRAMES);
-    upipe_bmd_sink->cb->pts = 0; /* callback is not running anymore */
+    upipe_bmd_sink->frames = 0;
     __sync_synchronize();
 
-    uclock_release(upipe_bmd_sink->uclock_bmd_sink);
-    upipe_bmd_sink->uclock_bmd_sink = NULL;
+    uclock_release(upipe_bmd_sink->uclock);
+    upipe_bmd_sink->uclock = NULL;
     deckLinkOutput->StopScheduledPlayback(0, NULL, 0);
     deckLinkOutput->DisableAudioOutput();
     /* bump clock upwards before it's made unavailable by DisableVideoOutput */
-    if (upipe_bmd_sink->opened)
-        upipe_bmd_sink->offset = uclock_now(&upipe_bmd_sink->uclock);
     deckLinkOutput->DisableVideoOutput();
 
     struct uchain *uchain = NULL;
@@ -1451,6 +1600,10 @@ static int upipe_bmd_open_vid(struct upipe *upipe)
     HRESULT result = E_NOINTERFACE;
 
     upipe_bmd_stop(upipe);
+
+    if (upipe_bmd_sink->uclock_std)
+        upipe_bmd_sink->uclock = uclock_bmd_sink_alloc(
+            upipe_bmd_sink->deckLink, upipe_bmd_sink->uclock_std);
 
     result = deckLinkOutput->GetDisplayModeIterator(&displayModeIterator);
     if (result != S_OK){
@@ -1554,6 +1707,7 @@ end:
 static int upipe_bmd_sink_open_card(struct upipe *upipe)
 {
     struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
+    IDeckLinkAttributes *deckLinkAttributes = NULL;
 
     int err = UBASE_ERR_NONE;
     HRESULT result = E_NOINTERFACE;
@@ -1578,7 +1732,6 @@ static int upipe_bmd_sink_open_card(struct upipe *upipe)
             if (result != S_OK)
                 break;
 
-            IDeckLinkAttributes *deckLinkAttributes = NULL;
             if (deckLink->QueryInterface(IID_IDeckLinkAttributes,
                                          (void**)&deckLinkAttributes) == S_OK) {
                 int64_t deckLinkTopologicalId = 0;
@@ -1614,6 +1767,19 @@ static int upipe_bmd_sink_open_card(struct upipe *upipe)
         upipe_err(upipe, "Could not read card model name");
     }
 
+    if (deckLink->QueryInterface(IID_IDeckLinkAttributes,
+                                 (void**)&deckLinkAttributes) == S_OK) {
+        HRESULT result =
+            deckLinkAttributes->GetFlag(BMDDeckLinkSupportsClockTimingAdjustment,
+                                        &upipe_bmd_sink->timing_adjustment_support);
+        deckLinkAttributes->Release();
+        if (result == S_OK)
+            upipe_notice_va(upipe, "clock timing adjustement supported: %s",
+                            upipe_bmd_sink->timing_adjustment_support ? "true" : "false");
+        else
+            upipe_warn_va(upipe, "cannot get clock timing adjustement supported flag");
+    }
+
     if (deckLink->QueryInterface(IID_IDeckLinkOutput,
                                  (void**)&upipe_bmd_sink->deckLinkOutput) != S_OK) {
         upipe_err_va(upipe, "decklink card has no output");
@@ -1628,9 +1794,6 @@ static int upipe_bmd_sink_open_card(struct upipe *upipe)
         upipe_err(upipe, "Could not set callback");
 
     upipe_bmd_sink->deckLink = deckLink;
-    //upipe_bmd_sink->uclock_bmd_sink = uclock_bmd_sink_alloc(deckLink,
-    //                                                        (enum uclock_std_flags)0);
-
 end:
 
     deckLinkIterator->Release();
@@ -1795,6 +1958,117 @@ static int _upipe_bmd_sink_set_genlock_offset(struct upipe *upipe, int64_t offse
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This sets the bmd_sink timing adjustment.
+ *
+ * @param upipe description structure of the pipe
+ * @param int64_t requested timing adjustment
+ * @return an error code
+ */
+static int _upipe_bmd_sink_set_timing_adjustment(struct upipe *upipe, int64_t adj)
+{
+    struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
+    IDeckLinkConfiguration *decklink_configuration;
+    HRESULT result;
+
+    if (!upipe_bmd_sink->timing_adjustment_support)
+        return UBASE_ERR_INVALID;
+
+    result = upipe_bmd_sink->deckLink->QueryInterface(
+        IID_IDeckLinkConfiguration, (void**)&decklink_configuration);
+    if (result != S_OK)
+        return UBASE_ERR_EXTERNAL;
+
+    if (upipe_bmd_sink->timing_adjustment == INT64_MAX) {
+        result = decklink_configuration->GetInt(
+            bmdDeckLinkConfigClockTimingAdjustment,
+            &upipe_bmd_sink->timing_adjustment);
+        if (result != S_OK) {
+            decklink_configuration->Release();
+            return UBASE_ERR_EXTERNAL;
+        }
+        upipe_notice_va(upipe, "current timing adjustment %" PRIi64,
+                        upipe_bmd_sink->timing_adjustment);
+    }
+
+    if (adj > 127)
+        adj = 127;
+    else if (adj < -127)
+        adj = -127;
+
+    if (upipe_bmd_sink->timing_adjustment == adj)
+        return UBASE_ERR_NONE;
+
+    upipe_bmd_sink->timing_adjustment = adj;
+
+    result = decklink_configuration->SetInt(
+        bmdDeckLinkConfigClockTimingAdjustment,
+        upipe_bmd_sink->timing_adjustment);
+    if (result != S_OK) {
+        decklink_configuration->Release();
+        return UBASE_ERR_EXTERNAL;
+    }
+
+    decklink_configuration->WriteConfigurationToPreferences();
+    decklink_configuration->Release();
+
+    upipe_notice_va(upipe, "adjust timing to %" PRIi64" ppm", adj);
+
+    return UBASE_ERR_NONE;
+}
+
+static int _upipe_bmd_sink_adjust_timing(struct upipe *upipe, int64_t adj)
+{
+    struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
+    IDeckLinkConfiguration *decklink_configuration;
+    HRESULT result;
+
+    if (!upipe_bmd_sink->timing_adjustment_support)
+        return UBASE_ERR_INVALID;
+
+    result = upipe_bmd_sink->deckLink->QueryInterface(
+        IID_IDeckLinkConfiguration, (void**)&decklink_configuration);
+    if (result != S_OK)
+        return UBASE_ERR_EXTERNAL;
+
+    if (upipe_bmd_sink->timing_adjustment == INT64_MAX) {
+        result = decklink_configuration->GetInt(
+            bmdDeckLinkConfigClockTimingAdjustment,
+            &upipe_bmd_sink->timing_adjustment);
+        if (result != S_OK) {
+            decklink_configuration->Release();
+            return UBASE_ERR_EXTERNAL;
+        }
+        upipe_notice_va(upipe, "current timing adjustment %" PRIi64,
+                        upipe_bmd_sink->timing_adjustment);
+    }
+
+    adj += upipe_bmd_sink->timing_adjustment;
+    if (adj > 127)
+        adj = 127;
+    else if (adj < -127)
+        adj = -127;
+
+    if (upipe_bmd_sink->timing_adjustment == adj)
+        return UBASE_ERR_NONE;
+
+    upipe_bmd_sink->timing_adjustment = adj;
+
+    result = decklink_configuration->SetInt(
+        bmdDeckLinkConfigClockTimingAdjustment,
+        upipe_bmd_sink->timing_adjustment);
+    if (result != S_OK) {
+        decklink_configuration->Release();
+        return UBASE_ERR_EXTERNAL;
+    }
+
+    decklink_configuration->WriteConfigurationToPreferences();
+    decklink_configuration->Release();
+
+    upipe_notice_va(upipe, "adjust timing to %" PRIi64" ppm", adj);
+
+    return UBASE_ERR_NONE;
+}
+
 /** @internal @This processes control commands on an bmd_sink source pipe.
  *
  * @param upipe description structure of the pipe
@@ -1802,7 +2076,8 @@ static int _upipe_bmd_sink_set_genlock_offset(struct upipe *upipe, int64_t offse
  * @param args arguments of the command
  * @return an error code
  */
-static int upipe_bmd_sink_control(struct upipe *upipe, int command, va_list args)
+static int upipe_bmd_sink_control_real(struct upipe *upipe,
+                                       int command, va_list args)
 {
     struct upipe_bmd_sink *bmd_sink = upipe_bmd_sink_from_upipe(upipe);
 
@@ -1813,6 +2088,14 @@ static int upipe_bmd_sink_control(struct upipe *upipe, int command, va_list args
                 UBASE_RETURN(upipe_bmd_sink_open_card(upipe));
             }
             return UBASE_ERR_NONE;
+
+        case UPIPE_ATTACH_UCLOCK:
+            upipe_bmd_sink_require_uclock(upipe);
+            return UBASE_ERR_NONE;
+
+        case UPIPE_ATTACH_UPUMP_MGR:
+            upipe_bmd_sink_set_timer(upipe, NULL);
+            return upipe_bmd_sink_attach_upump_mgr(upipe);
 
         case UPIPE_BMD_SINK_GET_PIC_SUB: {
             UBASE_SIGNATURE_CHECK(args, UPIPE_BMD_SINK_SIGNATURE)
@@ -1833,7 +2116,7 @@ static int upipe_bmd_sink_control(struct upipe *upipe, int command, va_list args
         case UPIPE_BMD_SINK_GET_UCLOCK: {
             UBASE_SIGNATURE_CHECK(args, UPIPE_BMD_SINK_SIGNATURE)
             struct uclock **pp_uclock = va_arg(args, struct uclock **);
-            *pp_uclock = &bmd_sink->uclock;
+            *pp_uclock = bmd_sink->uclock;
             return UBASE_ERR_NONE;
         }
         case UPIPE_BMD_SINK_GET_GENLOCK_STATUS: {
@@ -1859,6 +2142,28 @@ static int upipe_bmd_sink_control(struct upipe *upipe, int command, va_list args
         default:
             return UBASE_ERR_UNHANDLED;
     }
+}
+
+static int upipe_bmd_sink_check(struct upipe *upipe, struct uref *flow_def)
+{
+    struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
+
+    if (flow_def)
+        uref_free(flow_def);
+
+    if (!upipe_bmd_sink->uclock_std)
+        upipe_bmd_sink_require_uclock(upipe);
+
+    upipe_bmd_sink_schedule_start(upipe);
+
+    return UBASE_ERR_NONE;
+}
+
+static int upipe_bmd_sink_control(struct upipe *upipe,
+                                  int command, va_list args)
+{
+    UBASE_RETURN(upipe_bmd_sink_control_real(upipe, command, args));
+    return upipe_bmd_sink_check(upipe, NULL);
 }
 
 /** @internal @This frees all resources allocated.
@@ -1891,6 +2196,9 @@ static void upipe_bmd_sink_free(struct upipe *upipe)
     if (upipe_bmd_sink->cb)
         upipe_bmd_sink->cb->Release();
 
+    upipe_bmd_sink_clean_timer(upipe);
+    upipe_bmd_sink_clean_upump_mgr(upipe);
+    upipe_bmd_sink_clean_uclock(upipe);
     upipe_bmd_sink_clean_sub_inputs(upipe);
     upipe_bmd_sink_clean_urefcount(upipe);
     upipe_clean(upipe);
