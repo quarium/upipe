@@ -377,7 +377,7 @@ public:
             pts = ((upipe_bmd_sink_frame*)frame)->pts;
             pts += PREROLL_FRAMES * upipe_bmd_sink->ticks_per_frame;
         }
-#if 0
+
         static const char *Result_str[] = {
             "completed",
             "late",
@@ -385,6 +385,24 @@ public:
             "flushed",
             "?",
         };
+        void (*log)(struct upipe *upipe, const char *fmt, ...) = NULL;
+        switch (result) {
+            case 0:
+                log = upipe_verbose_va;
+                break;
+            case 1:
+            case 2:
+            case 3:
+                log = upipe_warn_va;
+                break;
+            default:
+                result = 4;
+                log = upipe_err_va;
+                break;
+        }
+        log(&upipe_bmd_sink->upipe, "%p Frame %s", frame, Result_str[result]);
+
+#if 0
 
         BMDTimeValue val;
         if (upipe_bmd_sink->deckLinkOutput->GetFrameCompletionReferenceTimestamp(frame, UCLOCK_FREQ, &val) != S_OK)
@@ -765,7 +783,7 @@ static unsigned upipe_bmd_sink_sub_sound_get_samples_channel(struct upipe *upipe
     struct uref *uref = upipe_bmd_sink_sub_pop(
         upipe_bmd_sink_sub_to_upipe(upipe_bmd_sink_sub), video_pts);
     if (!uref) {
-        upipe_err(&upipe_bmd_sink_sub->upipe, "no audio");
+        upipe_warn(&upipe_bmd_sink_sub->upipe, "no audio");
         return 0;
     }
 
@@ -835,7 +853,7 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
 
         /* increase refcount before outputting this frame */
         ULONG ref = upipe_bmd_sink->video_frame->AddRef();
-        upipe_dbg_va(upipe, "REUSING FRAME %p : %lu", upipe_bmd_sink->video_frame, ref);
+        upipe_warn_va(upipe, "reusing frame %p : %lu", upipe_bmd_sink->video_frame, ref);
         return upipe_bmd_sink->video_frame;
     }
 
