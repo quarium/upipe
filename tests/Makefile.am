@@ -73,6 +73,7 @@ check_PROGRAMS = \
 	ubuf_pic_clear_test \
 	uref_std_test \
 	uref_uri_test \
+	uref_dump_test \
 	uclock_std_test \
 	upipe_play_test \
 	upipe_trickplay_test \
@@ -134,6 +135,7 @@ TESTS = \
 	uprobe_uref_mgr_test \
 	uref_std_test \
 	uref_uri_test.sh \
+	uref_dump_test \
 	uclock_std_test \
 	upipe_null_test \
 	upipe_play_test \
