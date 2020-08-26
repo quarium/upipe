@@ -451,24 +451,31 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFormatChanged(
     struct upipe_bmd_src *upipe_bmd_src = upipe_bmd_src_from_upipe(upipe);
     /* Assumes default format is YUV, check bmdDetectedVideoInputYCbCr422? */
     BMDPixelFormat pixel_format = upipe_bmd_src->yuv_pixel_format;
+
     if (events & bmdVideoInputColorspaceChanged) {
         if (flags & bmdDetectedVideoInputRGB444)
-            pixel_format = bmdFormat8BitARGB;
+            pixel_format = bmdFormat10BitRGB;
     }
+    if (events & bmdVideoInputDisplayModeChanged ||
+        pixel_format != upipe_bmd_src->pixel_format) {
 
-    upipe_bmd_src->deckLinkInput->StopStreams();
+        char *mode_name = NULL;
+        mode->GetName((const char **)&mode_name);
+        upipe_notice_va(upipe, "change input format to %s %ubits",
+                        mode_name ?: "(unknown)",
+                        pixel_format == bmdFormat8BitYUV ? 8 : 10);
+        free(mode_name);
 
-    if (pixel_format != upipe_bmd_src->pixel_format) {
-        ubuf_mgr_release(upipe_bmd_src->pic_subpipe.ubuf_mgr);
-        upipe_bmd_src->pic_subpipe.ubuf_mgr = NULL;
-        upipe_bmd_src->pixel_format = pixel_format;
-    }
-    upipe_bmd_src_build_video(upipe, mode);
+        upipe_bmd_src->deckLinkInput->StopStreams();
 
-    upipe_bmd_src->deckLinkInput->EnableVideoInput(mode->GetDisplayMode(),
+        upipe_bmd_src_build_video(upipe, mode);
+
+        upipe_bmd_src->deckLinkInput->EnableVideoInput(
+            mode->GetDisplayMode(),
             upipe_bmd_src->pixel_format, bmdVideoInputEnableFormatDetection);
-    upipe_bmd_src->deckLinkInput->FlushStreams();
-    upipe_bmd_src->deckLinkInput->StartStreams();
+        upipe_bmd_src->deckLinkInput->FlushStreams();
+        upipe_bmd_src->deckLinkInput->StartStreams();
+    }
 
     return S_OK;
 }
@@ -967,8 +974,8 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
             if (result != S_OK)
                 break;
 
-            IDeckLinkAttributes *deckLinkAttributes = NULL;
-            if (deckLink->QueryInterface(IID_IDeckLinkAttributes,
+            IDeckLinkProfileAttributes *deckLinkAttributes = NULL;
+            if (deckLink->QueryInterface(IID_IDeckLinkProfileAttributes,
                                          (void**)&deckLinkAttributes) == S_OK) {
                 int64_t deckLinkTopologicalId = 0;
                 HRESULT result =
@@ -1007,6 +1014,13 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
         free(model_name);
     }
 
+    IDeckLinkProfileAttributes *deckLinkAttributes = NULL;
+    if (deckLink->QueryInterface(IID_IDeckLinkProfileAttributes,
+                                 (void**)&deckLinkAttributes) != S_OK) {
+        upipe_err(upipe, "decklink card has no attributes");
+        deckLink->Release();
+        return UBASE_ERR_EXTERNAL;
+    }
     /* get decklink status handler */
     IDeckLinkStatus *deckLinkStatus;
     if (deckLink->QueryInterface(IID_IDeckLinkStatus,
@@ -1017,10 +1031,11 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
     }
 
     int64_t duplex;
-    if (deckLinkStatus->GetInt(bmdDeckLinkStatusDuplexMode, &duplex) != S_OK) {
+    if (deckLinkAttributes->GetInt(BMDDeckLinkDuplex, &duplex) != S_OK) {
         upipe_warn(upipe, "couldn't query duplex status");
-    } else if (duplex == bmdDuplexStatusInactive) {
+    } else if (duplex == bmdDuplexInactive) {
         upipe_err(upipe, "decklink card has no input connector");
+        deckLinkAttributes->Release();
         deckLinkStatus->Release();
         deckLink->Release();
         return UBASE_ERR_INVALID;
@@ -1041,6 +1056,7 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
     if (deckLink->QueryInterface(IID_IDeckLinkConfiguration,
                 (void**)&deckLinkConfiguration) != S_OK) {
         upipe_err(upipe, "decklink card has no configuration");
+        deckLinkAttributes->Release();
         deckLinkInput->Release();
         deckLink->Release();
         return UBASE_ERR_EXTERNAL;
@@ -1112,6 +1128,7 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
             passthrough_mode = bmdDeckLinkCapturePassthroughModeCleanSwitch;
         else {
             upipe_err_va(upipe, "invalid passthrough mode: %s", passthrough);
+            deckLinkAttributes->Release();
             deckLinkInput->Release();
             deckLink->Release();
             return UBASE_ERR_EXTERNAL;
@@ -1184,6 +1201,7 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
     /* find display mode */
     IDeckLinkDisplayModeIterator *displayModeIterator = NULL;
     if (deckLinkInput->GetDisplayModeIterator(&displayModeIterator) != S_OK) {
+        deckLinkAttributes->Release();
         deckLinkInput->Release();
         deckLink->Release();
         return UBASE_ERR_EXTERNAL;
@@ -1199,6 +1217,7 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
 
     if (unlikely(!displayMode)) {
         upipe_err(upipe, "display mode not available");
+        deckLinkAttributes->Release();
         deckLinkInput->Release();
         deckLink->Release();
         return UBASE_ERR_EXTERNAL;
@@ -1211,32 +1230,26 @@ static int upipe_bmd_src_set_uri(struct upipe *upipe, const char *uri)
     }
 
     upipe_bmd_src->pixel_format = upipe_bmd_src->yuv_pixel_format;
-    BMDDisplayModeSupport displayModeSupported;
-    if (deckLinkInput->DoesSupportVideoMode(displayMode->GetDisplayMode(),
-                upipe_bmd_src->pixel_format, bmdVideoInputFlagDefault,
-                &displayModeSupported, NULL) != S_OK ||
-        displayModeSupported == bmdDisplayModeNotSupported) {
+    bool displayModeSupported;
+    if (deckLinkInput->DoesSupportVideoMode(
+            bmdVideoConnectionUnspecified, displayMode->GetDisplayMode(),
+            upipe_bmd_src->pixel_format, bmdVideoInputFlagDefault,
+                &displayModeSupported) != S_OK ||
+        !displayModeSupported) {
         upipe_err(upipe, "display mode not supported");
+        deckLinkAttributes->Release();
         deckLinkInput->Release();
         deckLink->Release();
         return UBASE_ERR_EXTERNAL;
     }
 
-    /* format detection available? */
-    IDeckLinkAttributes *deckLinkAttr = NULL;
-    if (deckLink->QueryInterface(IID_IDeckLinkAttributes,
-                                 (void**)&deckLinkAttr) != S_OK) {
-        deckLinkInput->Release();
-        deckLink->Release();
-        return UBASE_ERR_EXTERNAL;
-    }
     bool detectFormat = false;
-    deckLinkAttr->GetFlag(BMDDeckLinkSupportsInputFormatDetection,
+    deckLinkAttributes->GetFlag(BMDDeckLinkSupportsInputFormatDetection,
                           &detectFormat);
-    deckLinkAttr->Release();
     if (!detectFormat) {
         upipe_warn(upipe, "automatic input format detection not supported");
     }
+    deckLinkAttributes->Release();
 
     /* configure input */
     HRESULT err =

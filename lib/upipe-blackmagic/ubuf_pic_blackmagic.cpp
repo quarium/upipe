@@ -38,6 +38,7 @@
 #include <upipe/ubuf.h>
 #include <upipe/ubuf_pic.h>
 #include <upipe/ubuf_pic_common.h>
+#include <upipe/uclock_std.h>
 #include <upipe-blackmagic/ubuf_pic_blackmagic.h>
 
 #include <stdlib.h>
@@ -45,6 +46,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <assert.h>
+#include <pthread.h>
 
 #include "include/DeckLinkAPI.h"
 
@@ -251,6 +253,13 @@ static int ubuf_pic_bmd_control(struct ubuf *ubuf, int command, va_list args)
     }
 }
 
+void *release(void *arg)
+{
+    IDeckLinkVideoFrame *shared = (IDeckLinkVideoFrame *)arg;
+    shared->Release();
+    return NULL;
+}
+
 /** @This recycles or frees a ubuf.
  *
  * @param ubuf pointer to a ubuf structure
@@ -265,9 +274,21 @@ static void ubuf_pic_bmd_free(struct ubuf *ubuf)
     for (uint8_t plane = 0; plane < pic_mgr->common_mgr.nb_planes; plane++)
         ubuf_pic_common_plane_clean(ubuf, plane);
 
+    struct uclock *uclock = uclock_std_alloc((enum uclock_std_flags)0);
+    uint64_t before = uclock_now(uclock);
+#if 0
+    pthread_t thread;
+    pthread_create(&thread, NULL, release, pic_bmd->shared);
+#else
     pic_bmd->shared->Release();
+#endif
+    uint64_t after = uclock_now(uclock);
+    if (after - before > UCLOCK_FREQ / 100)
+        fprintf(stderr, "release took %.3f ms\n", (after - before) * 1000. / UCLOCK_FREQ);
     ubuf_mgr_release(ubuf->mgr);
     upool_free(&pic_mgr->ubuf_pool, pic_bmd);
+
+    uclock_release(uclock);
 }
 
 /** @internal @This allocates the data structure.

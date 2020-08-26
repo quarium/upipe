@@ -1315,7 +1315,16 @@ static int upipe_bmd_sink_sub_set_flow_def(struct upipe *upipe,
     if (upipe_bmd_sink_sub == &upipe_bmd_sink->pic_subpipe) {
         upipe_bmd_sink_sync_lost(super);
 
-        if (unlikely(!ubase_check(uref_pic_flow_check_v210(flow_def)))) {
+        uint8_t macropixel;
+        if (!ubase_check(uref_pic_flow_get_macropixel(flow_def, &macropixel))) {
+            upipe_err(upipe, "macropixel size not set");
+            uref_dump(flow_def, upipe->uprobe);
+            return UBASE_ERR_EXTERNAL;
+        }
+
+        if (macropixel != 6 || !ubase_check(
+                uref_pic_flow_check_chroma(flow_def, 1, 1, 16,
+                                           "u10y10v10y10u10y10v10y10u10y10v10y10"))) {
             upipe_err(upipe, "incompatible input flow def");
             uref_dump(flow_def, upipe->uprobe);
             return UBASE_ERR_EXTERNAL;
@@ -1769,8 +1778,8 @@ static int upipe_bmd_sink_open_card(struct upipe *upipe)
             if (result != S_OK)
                 break;
 
-            IDeckLinkAttributes *deckLinkAttributes = NULL;
-            if (deckLink->QueryInterface(IID_IDeckLinkAttributes,
+            IDeckLinkProfileAttributes *deckLinkAttributes = NULL;
+            if (deckLink->QueryInterface(IID_IDeckLinkProfileAttributes,
                                          (void**)&deckLinkAttributes) == S_OK) {
                 int64_t deckLinkTopologicalId = 0;
                 HRESULT result =
