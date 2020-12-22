@@ -82,17 +82,50 @@ extern "C" {
 static const unsigned max_samples = (uint64_t)48000 * 1001 / 24000;
 static const size_t audio_buf_size = max_samples * DECKLINK_CHANNELS * sizeof(int32_t);
 
+static const char *uyvy = "u8y8v8y8";
+static const char *v210 = "u10y10v10y10u10y10v10y10u10y10v10y10";
+
 class upipe_bmd_sink_frame : public IDeckLinkVideoFrame
 {
 public:
-    upipe_bmd_sink_frame(struct uref *_uref, void *_buffer, long _width, long _height, size_t _stride, uint64_t _pts) :
-                         uref(_uref), data(_buffer), width(_width), height(_height), stride(_stride), pts(_pts) {
-        uatomic_store(&refcount, 1);
+    static upipe_bmd_sink_frame *from_uref(struct uref *uref, uint64_t pts) {
+        BMDPixelFormat pixel_format = bmdFormat10BitYUV;
+        size_t stride;
+        const uint8_t *plane;
+        uint64_t hsize, vsize;
+        int ret;
+
+        ret = uref_pic_size(uref, &hsize, &vsize, NULL);
+        if (!ubase_check(ret))
+            return NULL;
+
+
+        ret = uref_pic_plane_size(uref, v210, &stride, NULL, NULL, NULL);
+        if (!ubase_check(ret)) {
+            ret = uref_pic_plane_size(uref, uyvy, &stride, NULL, NULL, NULL);
+            if (!ubase_check(ret))
+                return NULL;
+            pixel_format = bmdFormat8BitYUV;
+        }
+
+        if (pixel_format == bmdFormat10BitYUV)
+            ret = uref_pic_plane_read(uref, v210, 0, 0, -1, -1, &plane);
+        else
+            ret = uref_pic_plane_read(uref, uyvy, 0, 0, -1, -1, &plane);
+        if (!ubase_check(ret))
+            return NULL;
+
+        return new upipe_bmd_sink_frame(uref, pixel_format, (void*)plane,
+                                        hsize, vsize, stride, pts);
     }
 
     ~upipe_bmd_sink_frame(void) {
         uatomic_clean(&refcount);
-        uref_pic_plane_unmap(uref, "u10y10v10y10u10y10v10y10u10y10v10y10", 0, 0, -1, -1);
+
+        if (pixel_format == bmdFormat10BitYUV)
+            uref_pic_plane_unmap(uref, v210, 0, 0, -1, -1);
+        else
+            uref_pic_plane_unmap(uref, uyvy, 0, 0, -1, -1);
         uref_free(uref);
     }
 
@@ -109,7 +142,7 @@ public:
     }
 
     virtual BMDPixelFormat STDMETHODCALLTYPE GetPixelFormat(void) {
-        return bmdFormat10BitYUV;
+        return pixel_format;
     }
 
     virtual BMDFrameFlags STDMETHODCALLTYPE GetFlags(void) {
@@ -156,7 +189,15 @@ public:
     }
 
 private:
+    upipe_bmd_sink_frame(struct uref *_uref, BMDPixelFormat _pixel_format, void *_buffer,
+                         long _width, long _height, size_t _stride, uint64_t _pts) :
+                         uref(_uref), pixel_format(_pixel_format), data(_buffer),
+                         width(_width), height(_height), stride(_stride), pts(_pts) {
+        uatomic_store(&refcount, 1);
+    }
+
     struct uref *uref;
+    BMDPixelFormat pixel_format;
     void *data;
     long width;
     long height;
@@ -846,7 +887,7 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
 {
     struct upipe_bmd_sink *upipe_bmd_sink = upipe_bmd_sink_from_upipe(upipe);
     int w = upipe_bmd_sink->displayMode->GetWidth();
-    int h = upipe_bmd_sink->displayMode->GetHeight();
+//    int h = upipe_bmd_sink->displayMode->GetHeight();
     int sd = upipe_bmd_sink->mode == bmdModePAL || upipe_bmd_sink->mode == bmdModeNTSC;
 #ifdef UPIPE_HAVE_LIBZVBI_H
     int ttx = upipe_bmd_sink->mode == bmdModePAL || upipe_bmd_sink->mode == bmdModeHD1080i50;
@@ -862,19 +903,22 @@ static upipe_bmd_sink_frame *get_video_frame(struct upipe *upipe,
         return upipe_bmd_sink->video_frame;
     }
 
-    const char *v210 = "u10y10v10y10u10y10v10y10u10y10v10y10";
-    size_t stride;
-    const uint8_t *plane;
-    if (unlikely(!ubase_check(uref_pic_plane_size(uref, v210, &stride,
-                        NULL, NULL, NULL)) ||
-                !ubase_check(uref_pic_plane_read(uref, v210, 0, 0, -1, -1,
-                        &plane)))) {
-        upipe_err_va(upipe, "Could not read v210 plane");
-        return NULL;
-    }
-    upipe_bmd_sink_frame *video_frame = new upipe_bmd_sink_frame(uref,
-            (void*)plane, w, h, stride, pts);
+//    const char *uyvy = "u8y8v8y8";
+//    const char *v210 = "u10y10v10y10u10y10v10y10u10y10v10y10";
+//    size_t stride;
+//    const uint8_t *plane;
+//    if (unlikely(!ubase_check(uref_pic_plane_size(uref, v210, &stride,
+//                        NULL, NULL, NULL)) ||
+//                !ubase_check(uref_pic_plane_read(uref, v210, 0, 0, -1, -1,
+//                        &plane)))) {
+//        upipe_err_va(upipe, "Could not read v210 plane");
+//        return NULL;
+//    }
+    upipe_bmd_sink_frame *video_frame = upipe_bmd_sink_frame::from_uref(uref, pts);
+//        new upipe_bmd_sink_frame(uref,
+//            (void*)plane, w, h, stride, pts);
     if (!video_frame) {
+        upipe_err(upipe, "fail to read frame from uref");
         uref_free(uref);
         return NULL;
     }
@@ -1322,9 +1366,12 @@ static int upipe_bmd_sink_sub_set_flow_def(struct upipe *upipe,
             return UBASE_ERR_EXTERNAL;
         }
 
-        if (macropixel != 6 || !ubase_check(
-                uref_pic_flow_check_chroma(flow_def, 1, 1, 16,
-                                           "u10y10v10y10u10y10v10y10u10y10v10y10"))) {
+        if ((macropixel != 2 ||
+             !ubase_check(
+                 uref_pic_flow_check_chroma(flow_def, 1, 1, 4, uyvy))) &&
+             (macropixel != 6 ||
+              !ubase_check(
+                  uref_pic_flow_check_chroma(flow_def, 1, 1, 16, v210)))) {
             upipe_err(upipe, "incompatible input flow def");
             uref_dump(flow_def, upipe->uprobe);
             return UBASE_ERR_EXTERNAL;

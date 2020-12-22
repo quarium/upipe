@@ -452,22 +452,25 @@ HRESULT DeckLinkCaptureDelegate::VideoInputFormatChanged(
     /* Assumes default format is YUV, check bmdDetectedVideoInputYCbCr422? */
     BMDPixelFormat pixel_format = upipe_bmd_src->yuv_pixel_format;
 
+    char *mode_name = NULL;
+    mode->GetName((const char **)&mode_name);
+    upipe_notice_va(upipe, "input format change %s", mode_name ?: "(unknown)");
+    free(mode_name);
+
     if (events & bmdVideoInputColorspaceChanged) {
         if (flags & bmdDetectedVideoInputRGB444)
-            pixel_format = bmdFormat10BitRGB;
+            pixel_format = bmdFormat8BitARGB;
     }
+
     if (events & bmdVideoInputDisplayModeChanged ||
         pixel_format != upipe_bmd_src->pixel_format) {
-
-        char *mode_name = NULL;
-        mode->GetName((const char **)&mode_name);
-        upipe_notice_va(upipe, "change input format to %s %ubits",
-                        mode_name ?: "(unknown)",
-                        pixel_format == bmdFormat8BitYUV ? 8 : 10);
-        free(mode_name);
-
         upipe_bmd_src->deckLinkInput->StopStreams();
 
+        if (pixel_format != upipe_bmd_src->pixel_format) {
+            ubuf_mgr_release(upipe_bmd_src->pic_subpipe.ubuf_mgr);
+            upipe_bmd_src->pic_subpipe.ubuf_mgr = NULL;
+            upipe_bmd_src->pixel_format = pixel_format;
+        }
         upipe_bmd_src_build_video(upipe, mode);
 
         upipe_bmd_src->deckLinkInput->EnableVideoInput(
