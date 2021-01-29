@@ -168,6 +168,9 @@ static void upipe_dvbsubf_work(struct upipe *upipe, struct upump **upump_p)
         goto upipe_dvbsubf_work_err;
     }
 
+    unsigned i = 0;
+    bool pages[UINT8_MAX];
+    memset(pages, 0, sizeof (pages));
     while (ubase_check(uref_block_extract(upipe_dvbsubf->next_uref,
                                           offset, 1, &buffer)) &&
            buffer == DVBSUBS_SYNC) {
@@ -179,12 +182,48 @@ static void upipe_dvbsubf_work(struct upipe *upipe, struct upump **upump_p)
             break;
         uint8_t type = dvbsubs_get_type(dvbsubs);
         uint16_t length = dvbsubs_get_length(dvbsubs);
-        /* uint16_t page = dvbsubs_get_page(dvbsubs); */
+        uint16_t page = dvbsubs_get_page(dvbsubs);
+        if (!pages[page])
+            uref_dvbsub_flow_set_page(flow_def, page, i++);
+        pages[page] = true;
         UBASE_FATAL(upipe, uref_block_peek_unmap(upipe_dvbsubf->next_uref,
                                                  offset, dvbsubs_buffer,
                                                  dvbsubs))
 
 
+        fprintf(stderr, "page %u: type %u\n", page, type);
+
+        uint8_t buffer[DVBSUB_HEADER_SIZE + length];
+        const uint8_t *b = uref_block_peek(upipe_dvbsubf->next_uref,
+                                           offset, length + DVBSUBS_HEADER_SIZE,
+                                           buffer);
+        if (b) {
+            if (b[0] != 0x0f)
+                fprintf(stderr, "invalid sync byte %02x\n", b[0]);
+            switch (type) {
+                case DVBSUBS_PAGE_COMPOSITION:
+                    fprintf(stderr, "page_time_out %u\n", b[7]);
+                    fprintf(stderr, "page_version_number %u\n", b[8] & 0x4);
+                    fprintf(stderr, "page_state %u\n", (b[8] >> 4) & 0x2);
+                    for (unsigned i = 3; i + 6 < length; i += 6) {
+                        fprintf(stderr, "region_id %u\n", b[6 + i]);
+                        fprintf(stderr, "region_horizontal %u\n", *(uint16_t *)(b + 6 + i + 2));
+                        fprintf(stderr, "region_vertical %u\n", *(uint16_t *)(b + 6 + i + 4));
+                    }
+                    break;
+
+                case DVBSUBS_DISPLAY_DEFINITION:
+                    fprintf(stderr, "dds_version_number: %u\n", (b[6] >> 0) & 0xf);
+                    fprintf(stderr, "display_window_flag: %u\n", (b[6] >> 4) & 0x1);
+                    fprintf(stderr, "display_width: %u\n", (uint16_t)b[7] << 8 | b[8]);
+                    fprintf(stderr, "display_height: %u\n", (uint16_t)b[9] << 8 | b[10]);
+                    break;
+            }
+        }
+        else
+            fprintf(stderr, "fail to map buffer\n");
+        uref_block_peek_unmap(upipe_dvbsubf->next_uref,
+                              offset, buffer, b);
         if (type == DVBSUBS_DISPLAY_DEFINITION) {
             display_def = true;
         }
