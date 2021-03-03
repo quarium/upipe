@@ -2273,26 +2273,6 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
     }
     uref_attach_ubuf(uref, ubuf);
 
-    /* set pts prog */
-    uint64_t pts_prog = UINT64_MAX;
-    uint64_t pts_sys = UINT64_MAX;
-    if (frame->pts != AV_NOPTS_VALUE) {
-        AVRational time_base = av_buffersink_get_time_base(
-            upipe_avfilt->buffersink_ctx);
-        struct urational to = { .num = UCLOCK_FREQ, .den = 1 };
-        struct urational from = { .num = time_base.num, .den = time_base.den };
-        struct urational mult = urational_multiply(&to, &from);
-        uint64_t pts = frame->pts * mult.num / mult.den;
-
-        if (ubase_check(uref_clock_get_pts_prog(uref, &pts_prog)) &&
-            ubase_check(uref_clock_get_pts_sys(uref, &pts_sys))) {
-            int64_t pts_offset = pts_sys - pts_prog;
-            uref_clock_set_pts_sys(uref, pts_sys = pts + pts_offset);
-        }
-
-        uref_clock_set_pts_prog(uref, pts_prog = pts);
-    }
-
     uint64_t duration = 0;
     switch (type) {
         case UPIPE_AVFILT_SUB_MEDIA_TYPE_VIDEO:
@@ -2317,13 +2297,10 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
     }
     UBASE_ERROR(upipe, uref_clock_set_duration(uref, duration));
 
-    upipe_verbose_va(upipe, "output frame %d(%d) %ix%i pts_prog=%f "
-                     "pts_sys=%f duration=%f",
+    upipe_verbose_va(upipe, "output frame %d(%d) %ix%i duration=%f",
                      frame->display_picture_number,
                      frame->coded_picture_number,
                      frame->width, frame->height,
-                     (double) pts_prog / UCLOCK_FREQ,
-                     (double) pts_sys / UCLOCK_FREQ,
                      (double) duration / UCLOCK_FREQ);
 
     upipe_avfilt_output(upipe, uref, upump_p);
