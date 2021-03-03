@@ -376,6 +376,9 @@ static int upipe_ffmt_check_flow_format(struct upipe *upipe,
                                 hw_in ? "hw" : "sw",
                                 hw_out ? "hw" : "sw");
             }
+            else {
+                upipe_notice_va(upipe, "no transfer needed");
+            }
             if (need_scale) {
                 uint64_t hsize_in = 0, vsize_in = 0;
                 uint64_t hsize_out = 0, vsize_out = 0;
@@ -439,6 +442,9 @@ static int upipe_ffmt_check_flow_format(struct upipe *upipe,
 
             need_deint = false;
             need_sws = false;
+        }
+        else {
+            upipe_notice(upipe, "no need for avfilter");
         }
 
         if (need_deint) {
