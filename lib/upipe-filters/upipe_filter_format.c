@@ -414,6 +414,8 @@ static int upipe_ffmt_check_flow_format(struct upipe *upipe,
                 if (pix_fmt != NULL && strcmp(pix_fmt, "nv12"))
                     str_cat("scale,format=%s,", pix_fmt);
             }
+            else if (need_format)
+                str_cat("scale_vaapi=format=%s,", pix_fmt);
 
 #undef str_cat
 
