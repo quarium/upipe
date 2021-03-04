@@ -181,6 +181,8 @@ struct upipe_avcdec {
     AVPacket *avpkt;
     /** true if the context will be closed */
     bool close;
+    /** true if no duration must be set */
+    bool no_duration;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -1173,6 +1175,8 @@ static void upipe_avcdec_output_pic(struct upipe *upipe, struct upump **upump_p)
         }
     }
 
+    if (upipe_avcdec->no_duration)
+        uref_clock_delete_duration(uref);
     upipe_avcdec_output(upipe, uref, upump_p);
 }
 
@@ -1615,6 +1619,9 @@ static int upipe_avcdec_set_option(struct upipe *upipe,
                      buf);
         return UBASE_ERR_EXTERNAL;
     }
+    if (option && content && !strcmp(option, "skip_frame")) {
+        upipe_avcdec->no_duration = !strcmp(content, "nokey");
+    }
     return UBASE_ERR_NONE;
 }
 
@@ -1764,6 +1771,7 @@ static struct upipe *upipe_avcdec_alloc(struct upipe_mgr *mgr,
     upipe_avcdec->avpkt = avpkt;
     upipe_avcdec->counter = 0;
     upipe_avcdec->close = false;
+    upipe_avcdec->no_duration = false;
     upipe_avcdec->pix_fmt = AV_PIX_FMT_NONE;
     upipe_avcdec->sample_fmt = AV_SAMPLE_FMT_NONE;
     upipe_avcdec->channels = 0;
