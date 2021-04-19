@@ -85,7 +85,11 @@ static inline void urefcount_reset(struct urefcount *refcount)
 static inline struct urefcount *urefcount_use(struct urefcount *refcount)
 {
     if (refcount != NULL && refcount->cb != NULL) {
+#if 0
+        assert(uatomic_fetch_add(&refcount->refcount, 1));
+#else
         uatomic_fetch_add(&refcount->refcount, 1);
+#endif
         return refcount;
     } else
         return NULL;
