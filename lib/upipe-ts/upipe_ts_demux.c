@@ -288,6 +288,8 @@ struct upipe_ts_demux {
     bool eit_enabled;
     /** enable EITs table ID decoder */
     bool eits_enabled;
+    /** maximum output delay */
+    uint64_t max_delay;
 
     /** probe to get new flow events from inner pipes created by psi_pid
      * objects */
@@ -714,6 +716,8 @@ static int upipe_ts_demux_output_clock_ts(struct upipe *upipe,
         upipe_ts_demux_output_from_upipe(upipe);
     struct upipe_ts_demux_program *program =
         upipe_ts_demux_program_from_output_mgr(upipe->mgr);
+    struct upipe_ts_demux *demux = upipe_ts_demux_from_program_mgr(
+                upipe_ts_demux_program_to_upipe(program)->mgr);
 
     struct uref *uref = va_arg(args, struct uref *);
     uint64_t dts_orig;
@@ -728,6 +732,12 @@ static int upipe_ts_demux_output_clock_ts(struct upipe *upipe,
         /* handle 2^33 wrap-arounds */
         uint64_t delta = (TS_CLOCK_MAX + dts_orig -
                           (program->last_pcr % TS_CLOCK_MAX)) % TS_CLOCK_MAX;
+        if (delta > upipe_ts_demux_output->max_delay &&
+            delta <= demux->max_delay) {
+            upipe_warn(upipe, "increasing output delay to maximum");
+            upipe_ts_demux_output->max_delay = demux->max_delay;
+        }
+ 
         if (delta <= upipe_ts_demux_output->max_delay) {
             uint64_t dts = program->timestamp_offset +
                            program->last_pcr + delta;
@@ -987,7 +997,7 @@ static struct upipe *upipe_ts_demux_output_alloc(struct upipe_mgr *mgr,
     upipe_ts_demux_output->pcr = false;
     upipe_ts_demux_output->split_output = NULL;
     upipe_ts_demux_output->setrap = NULL;
-    upipe_ts_demux_output->max_delay = MAX_DELAY;
+    upipe_ts_demux_output->max_delay = demux->max_delay;
     upipe_ts_demux_output->last_dts_orig = UINT64_MAX;
     uref_ts_flow_get_max_delay(flow_def, &upipe_ts_demux_output->max_delay);
     uprobe_init(&upipe_ts_demux_output->telx_probe,
@@ -3192,6 +3202,7 @@ static struct upipe *upipe_ts_demux_alloc(struct upipe_mgr *mgr,
     upipe_ts_demux->auto_conformance = true;
     upipe_ts_demux->eit_enabled = true;
     upipe_ts_demux->eits_enabled = true;
+    upipe_ts_demux->max_delay = MAX_DELAY;
     upipe_ts_demux->nit_pid = 0;
     upipe_ts_demux->flow_def_input = NULL;
 
@@ -3484,6 +3495,20 @@ static int _upipe_ts_demux_set_eits_enabled(struct upipe *upipe,
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This sets the maximum output delay.
+ *
+ * @param upipe description structure of the pipe
+ * @param max_delay maximum output delay to set (in 27MHz)
+ * @return an error code
+ */
+static int _upipe_ts_demux_set_max_delay(struct upipe *upipe,
+                                         uint64_t max_delay)
+{
+    struct upipe_ts_demux *upipe_ts_demux = upipe_ts_demux_from_upipe(upipe);
+    upipe_ts_demux->max_delay = max_delay;
+    return UBASE_ERR_NONE;
+}
+
 /** @internal @This processes control commands on a ts_demux pipe.
  *
  * @param upipe description structure of the pipe
@@ -3555,6 +3580,11 @@ static int upipe_ts_demux_control(struct upipe *upipe,
             UBASE_SIGNATURE_CHECK(args, UPIPE_TS_DEMUX_SIGNATURE);
             int enabled = va_arg(args, int);
             return _upipe_ts_demux_set_eits_enabled(upipe, !!enabled);
+        }
+        case UPIPE_TS_DEMUX_SET_MAX_DELAY: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_TS_DEMUX_SIGNATURE);
+            uint64_t max_delay = va_arg(args, uint64_t);
+            return _upipe_ts_demux_set_max_delay(upipe, max_delay);
         }
 
         default:

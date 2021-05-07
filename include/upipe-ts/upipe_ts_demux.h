@@ -58,6 +58,8 @@ enum upipe_ts_demux_command {
     UPIPE_TS_DEMUX_SET_EIT_ENABLED,
     /** enables  or disables EITs table ID decoding (int) */
     UPIPE_TS_DEMUX_SET_EITS_ENABLED,
+    /** sets maximum output delay (uint64_t) */
+    UPIPE_TS_DEMUX_SET_MAX_DELAY,
 };
 
 /** @This returns the currently detected conformance mode. It cannot return
@@ -126,6 +128,19 @@ static inline int upipe_ts_demux_set_eits_enabled(struct upipe *upipe,
 {
     return upipe_control(upipe, UPIPE_TS_DEMUX_SET_EITS_ENABLED,
                          UPIPE_TS_DEMUX_SIGNATURE, enabled ? 1 : 0);
+}
+
+/** @This sets the maximum output delay.
+ *
+ * @param upipe description structure of the pipe
+ * @param max_delay maximum output delay to set (in 27MHz)
+ * @return an error code
+ */
+static inline int upipe_ts_demux_set_max_delay(struct upipe *upipe,
+                                               uint64_t max_delay)
+{
+    return upipe_control(upipe, UPIPE_TS_DEMUX_SET_MAX_DELAY,
+                         UPIPE_TS_DEMUX_SIGNATURE, max_delay);
 }
 
 /** @This returns the management structure for all ts_demux pipes.
