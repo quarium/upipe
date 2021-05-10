@@ -290,6 +290,8 @@ struct upipe_ts_demux {
     bool eits_enabled;
     /** maximum output delay */
     uint64_t max_delay;
+    /** set if PCRs must be ignored */
+    bool ignore_pcr;
 
     /** probe to get new flow events from inner pipes created by psi_pid
      * objects */
@@ -399,6 +401,8 @@ struct upipe_ts_demux_program {
     uint64_t pmt_pid;
     /** PCR PID */
     uint16_t pcr_pid;
+    /** ignore PCR */
+    bool ignore_pcr;
     /** PCR ts_split output inner pipe */
     struct upipe *pcr_split_output;
 
@@ -689,7 +693,7 @@ static int upipe_ts_demux_output_clock_ref(struct upipe *upipe,
     struct upipe_ts_demux_program *program =
         upipe_ts_demux_program_from_output_mgr(upipe->mgr);
 
-    if (upipe_ts_demux_output->pcr) {
+    if (upipe_ts_demux_output->pcr && !program->ignore_pcr) {
         struct uref *uref = va_arg(args, struct uref *);
         uint64_t pcr_orig = va_arg(args, uint64_t);
         int discontinuity = va_arg(args, int);
@@ -727,6 +731,13 @@ static int upipe_ts_demux_output_clock_ts(struct upipe *upipe,
             upipe_ts_demux_program_handle_pcr(
                     upipe_ts_demux_program_to_upipe(program),
                     uref, dts_orig, false);
+        }
+        else if (program->ignore_pcr && upipe_ts_demux_output->pcr) {
+            /* use DTS as PCR. */
+            upipe_ts_demux_program_handle_pcr(
+                upipe_ts_demux_program_to_upipe(program),
+                uref, dts_orig - upipe_ts_demux_output->max_delay,
+                false);
         }
 
         /* handle 2^33 wrap-arounds */
@@ -1805,7 +1816,8 @@ static int upipe_ts_demux_program_pcr_probe(struct uprobe *uprobe,
     struct uref *uref = va_arg(args, struct uref *);
     uint64_t pcr_orig = va_arg(args, uint64_t);
     int discontinuity = va_arg(args, int);
-    upipe_ts_demux_program_handle_pcr(upipe, uref, pcr_orig, discontinuity);
+    if (!upipe_ts_demux_program->ignore_pcr)
+        upipe_ts_demux_program_handle_pcr(upipe, uref, pcr_orig, discontinuity);
     return UBASE_ERR_NONE;
 }
 
@@ -2006,6 +2018,8 @@ static struct upipe *upipe_ts_demux_program_alloc(struct upipe_mgr *mgr,
         return NULL;
     struct upipe_ts_demux_program *upipe_ts_demux_program =
         upipe_ts_demux_program_from_upipe(upipe);
+    struct upipe_ts_demux *demux = upipe_ts_demux_from_program_mgr(upipe->mgr);
+
     upipe_ts_demux_program_init_urefcount(upipe);
     urefcount_init(upipe_ts_demux_program_to_urefcount_real(upipe_ts_demux_program), upipe_ts_demux_program_free);
     upipe_ts_demux_program_init_output(upipe);
@@ -2015,6 +2029,7 @@ static struct upipe *upipe_ts_demux_program_alloc(struct upipe_mgr *mgr,
     upipe_ts_demux_program->program = 0;
     upipe_ts_demux_program->pmt_rap = 0;
     upipe_ts_demux_program->pcr_pid = 0;
+    upipe_ts_demux_program->ignore_pcr = demux->ignore_pcr;
     upipe_ts_demux_program->pcr_split_output = NULL;
     upipe_ts_demux_program->psi_pid_pmt =
         upipe_ts_demux_program->psi_pid_eit =
@@ -2059,7 +2074,6 @@ static struct upipe *upipe_ts_demux_program_alloc(struct upipe_mgr *mgr,
     upipe_ts_demux_program_init_sub(upipe);
     upipe_throw_ready(upipe);
 
-    struct upipe_ts_demux *demux = upipe_ts_demux_from_program_mgr(upipe->mgr);
     const uint8_t *filter, *mask;
     size_t size;
     const char *def;
@@ -3203,6 +3217,7 @@ static struct upipe *upipe_ts_demux_alloc(struct upipe_mgr *mgr,
     upipe_ts_demux->eit_enabled = true;
     upipe_ts_demux->eits_enabled = true;
     upipe_ts_demux->max_delay = MAX_DELAY;
+    upipe_ts_demux->ignore_pcr = false;
     upipe_ts_demux->nit_pid = 0;
     upipe_ts_demux->flow_def_input = NULL;
 
@@ -3509,6 +3524,20 @@ static int _upipe_ts_demux_set_max_delay(struct upipe *upipe,
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This ignores all PCRs
+ *
+ * @param upipe description structure of the pipe
+ * @param ignore_pcr true if all PCRs must be ignored
+ * @return an error code
+ */
+static int _upipe_ts_demux_set_ignore_pcr(struct upipe *upipe,
+                                          bool ignore_pcr)
+{
+    struct upipe_ts_demux *upipe_ts_demux = upipe_ts_demux_from_upipe(upipe);
+    upipe_ts_demux->ignore_pcr = ignore_pcr;
+    return UBASE_ERR_NONE;
+}
+
 /** @internal @This processes control commands on a ts_demux pipe.
  *
  * @param upipe description structure of the pipe
@@ -3585,6 +3614,11 @@ static int upipe_ts_demux_control(struct upipe *upipe,
             UBASE_SIGNATURE_CHECK(args, UPIPE_TS_DEMUX_SIGNATURE);
             uint64_t max_delay = va_arg(args, uint64_t);
             return _upipe_ts_demux_set_max_delay(upipe, max_delay);
+        }
+        case UPIPE_TS_DEMUX_SET_IGNORE_PCR: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_TS_DEMUX_SIGNATURE);
+            int ignore_pcr = va_arg(args, int);
+            return _upipe_ts_demux_set_ignore_pcr(upipe, !!ignore_pcr);
         }
 
         default:
