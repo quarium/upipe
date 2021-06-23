@@ -253,6 +253,27 @@ static inline void uprobe_clean(struct uprobe *uprobe)
  */
 struct uprobe *uprobe_alloc(uprobe_throw_func func, struct uprobe *next);
 
+/** @This allocates and initializes a probe with refcounted data.
+ *
+ * Please note that this function does not _use() data, so if you want to reuse
+ * an existing data, you have to use it first.
+ *
+ * @param func function called when an event is raised
+ * @param data refcount on the data
+ * @param next next probe to test if this one doesn't catch the event
+ * @return an allocated probe
+ */
+struct uprobe *uprobe_alloc_data(uprobe_throw_func func,
+                                 struct urefcount *data,
+                                 struct uprobe *next);
+
+/** @This returns a refcount on the data passed at allocation or NULL.
+ *
+ * @param uprobe pointer to uprobe
+ * @return an urefcount or NULL
+ */
+struct urefcount *uprobe_alloc_get_data(struct uprobe *uprobe);
+
 /** @internal @This throws generic events with optional arguments.
  *
  * @param uprobe pointer to probe hierarchy
