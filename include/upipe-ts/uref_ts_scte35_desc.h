@@ -93,6 +93,13 @@ UREF_ATTR_SMALL_UNSIGNED(ts_scte35_desc_seg, sub_expected,
                          "scte35.desc.seg.sub_expected",
                          sub segment expected);
 
+UREF_ATTR_UNSIGNED(ts_scte35_desc_time, tai_sec, "scte35.desc.time.tai_sec",
+                   TAI seconds);
+UREF_ATTR_UNSIGNED(ts_scte35_desc_time, tai_ns, "scte35_desc.time.tai_ns",
+                   TAI nanoseconds);
+UREF_ATTR_UNSIGNED(ts_scte35_desc_time, utc_off, "scte35_desc.time.utc_off",
+                   UTC offset);
+
 #ifdef __cplusplus
 }
 #endif

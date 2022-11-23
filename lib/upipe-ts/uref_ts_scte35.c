@@ -38,6 +38,48 @@
 /** ratio between Upipe freq and MPEG freq */
 #define CLOCK_SCALE (UCLOCK_FREQ / 90000)
 
+/** @This extracts a splice descriptor and checks its validity.
+ *
+ * @param uref uref describing time signal event
+ * @param desc_p pointer filled with descriptor
+ * @param desc_len_p pointer filled with descriptor length
+ * @param at index of the descriptor to extract
+ * @return an error code
+ */
+static int uref_ts_scte35_desc_get(struct uref *uref,
+                                   const uint8_t **desc_p,
+                                   size_t *desc_len_p,
+                                   uint64_t at)
+{
+    uint64_t nb = 0;
+    UBASE_RETURN(uref_ts_flow_get_descriptors(uref, &nb));
+    if (at >= nb)
+        return UBASE_ERR_INVALID;
+
+    const uint8_t *desc = NULL;
+    size_t desc_len = 0;
+    UBASE_RETURN(uref_ts_flow_get_descriptor(uref, &desc, &desc_len, at));
+    if (!desc)
+        return UBASE_ERR_INVALID;
+
+    if (desc_len < SCTE35_SPLICE_DESC_HEADER_SIZE)
+        return UBASE_ERR_INVALID;
+
+    uint8_t length = scte35_splice_desc_get_length(desc) + DESC_HEADER_SIZE;
+    if (length != desc_len)
+        return UBASE_ERR_INVALID;
+
+    uint32_t identifier = scte35_splice_desc_get_identifier(desc);
+    if (identifier != SCTE35_SPLICE_DESC_IDENTIFIER)
+        return UBASE_ERR_INVALID;
+
+    if (desc_p)
+        *desc_p = desc;
+    if (desc_len_p)
+        *desc_len_p = desc_len;
+    return UBASE_ERR_NONE;
+}
+
 /** @This extracts a segmentation descriptor and checks its validity.
  *
  * @param uref uref describing time signal event
@@ -51,26 +93,16 @@ int uref_ts_scte35_desc_get_seg(struct uref *uref,
                                 size_t *desc_len_p,
                                 uint64_t at)
 {
-    uint64_t nb = 0;
-    UBASE_RETURN(uref_ts_flow_get_descriptors(uref, &nb));
-    if (at >= nb)
-        return UBASE_ERR_INVALID;
-
     const uint8_t *desc = NULL;
     size_t desc_len = 0;
-    UBASE_RETURN(uref_ts_flow_get_descriptor(uref, &desc, &desc_len, at));
-    if (!desc)
-        return UBASE_ERR_INVALID;
+    int err = uref_ts_scte35_desc_get(uref, &desc, &desc_len, at);
+    if (unlikely(!ubase_check(err)))
+        return err;
 
     if (desc_len < SCTE35_SPLICE_DESC_HEADER_SIZE + SCTE35_SEG_DESC_HEADER_SIZE)
         return UBASE_ERR_INVALID;
 
-    uint8_t length = scte35_splice_desc_get_length(desc) + DESC_HEADER_SIZE;
-    if (length != desc_len)
-        return UBASE_ERR_INVALID;
-
-    uint32_t identifier = scte35_splice_desc_get_identifier(desc);
-    if (identifier != SCTE35_SPLICE_DESC_IDENTIFIER)
+    if (scte35_splice_desc_get_tag(desc) != SCTE35_SPLICE_DESC_TAG_SEG)
         return UBASE_ERR_INVALID;
 
     if (desc_p)
@@ -90,7 +122,7 @@ struct uref *uref_ts_scte35_extract_desc(struct uref *uref, uint64_t at)
 {
     const uint8_t *desc;
     size_t length;
-    int ret = uref_ts_scte35_desc_get_seg(uref, &desc, &length, at);
+    int ret = uref_ts_scte35_desc_get(uref, &desc, &length, at);
     if (unlikely(!ubase_check(ret)))
         return NULL;
 
@@ -235,6 +267,22 @@ struct uref *uref_ts_scte35_extract_desc(struct uref *uref, uint64_t at)
             }
             break;
         }
+
+        case SCTE35_SPLICE_DESC_TAG_TIME: {
+            if (length < SCTE35_TIME_DESC_HEADER_SIZE) {
+                uref_free(out);
+                return NULL;
+            }
+            length -= SCTE35_TIME_DESC_HEADER_SIZE;
+
+            uint64_t tai_sec = scte35_time_desc_get_tai_sec(desc);
+            uint32_t tai_ns = scte35_time_desc_get_tai_ns(desc);
+            uint16_t utc_off = scte35_time_desc_get_utc_off(desc);
+            uref_ts_scte35_desc_time_set_tai_sec(out, tai_sec);
+            uref_ts_scte35_desc_time_set_tai_ns(out, tai_ns);
+            uref_ts_scte35_desc_time_set_utc_off(out, utc_off);
+            break;
+        }
     }
     return out;
 }
@@ -366,6 +414,22 @@ int uref_ts_scte35_add_desc(struct uref *dst, struct uref *uref)
             scte35_seg_desc_set_expected(desc, expected);
             scte35_seg_desc_set_sub_num(desc, sub_num);
             scte35_seg_desc_set_sub_expected(desc, sub_expected);
+            uref_ts_flow_add_descriptor(
+                dst, desc, desc_get_length(desc) + DESC_HEADER_SIZE);
+            break;
+        }
+
+        case SCTE35_SPLICE_DESC_TAG_TIME: {
+            uint64_t tai_sec = 0;
+            uint64_t tai_ns = 0;
+            uint64_t utc_off = 0;
+            uref_ts_scte35_desc_time_get_tai_sec(uref, &tai_sec);
+            uref_ts_scte35_desc_time_get_tai_ns(uref, &tai_ns);
+            uref_ts_scte35_desc_time_get_utc_off(uref, &utc_off);
+            scte35_time_desc_init(desc);
+            scte35_time_desc_set_tai_sec(desc, tai_sec);
+            scte35_time_desc_set_tai_ns(desc, tai_ns);
+            scte35_time_desc_set_utc_off(desc, utc_off);
             uref_ts_flow_add_descriptor(
                 dst, desc, desc_get_length(desc) + DESC_HEADER_SIZE);
             break;
