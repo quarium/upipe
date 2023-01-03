@@ -270,11 +270,22 @@ static void upipe_ts_sdtd_parse_descs(struct upipe *upipe,
             /* DVB */
             case 0x48: /* service descriptor */
                 if ((valid = desc48_validate(desc))) {
+                    size_t tmp_length;
+                    const uint8_t *tmp;
+
                     uint8_t provider_length, service_length;
                     const uint8_t *provider =
                         desc48_get_provider(desc, &provider_length);
+                    tmp_length = provider_length;
+                    tmp = provider;
+                    const char *provider_encoding =
+                        dvb_string_get_encoding(&tmp, &tmp_length, NULL);
                     const uint8_t *service =
                         desc48_get_service(desc, &service_length);
+                    tmp_length = service_length;
+                    tmp = service;
+                    const char *service_encoding =
+                        dvb_string_get_encoding(&tmp, &tmp_length, NULL);
                     char *provider_string =
                         dvb_string_get(provider, provider_length,
                                        upipe_ts_sdtd_iconv_wrapper, upipe);
@@ -283,8 +294,15 @@ static void upipe_ts_sdtd_parse_descs(struct upipe *upipe,
                                        upipe_ts_sdtd_iconv_wrapper, upipe);
                     UBASE_FATAL(upipe, uref_flow_set_name(flow_def,
                                 service_string))
+                    if (service_encoding)
+                        UBASE_FATAL(upipe, uref_flow_set_name_orig_encoding(
+                                flow_def, service_encoding));
                     UBASE_FATAL(upipe, uref_ts_flow_set_provider_name(flow_def,
                                 provider_string))
+                    if (provider_encoding)
+                        UBASE_FATAL(
+                            upipe, uref_ts_flow_set_provider_name_orig_encoding(
+                                flow_def, provider_encoding));
                     free(provider_string);
                     free(service_string);
 

@@ -84,6 +84,8 @@ UREF_ATTR_VOID(ts_flow, eit_schedule, "t.eits", presence of EIT schedule)
 UREF_ATTR_SMALL_UNSIGNED(ts_flow, running_status, "t.run", running status)
 UREF_ATTR_VOID(ts_flow, scrambled, "t.ca", scrambled service)
 UREF_ATTR_STRING(ts_flow, provider_name, "t.provname", provider name)
+UREF_ATTR_STRING(ts_flow, provider_name_orig_encoding, "t.provname_orig_enc",
+                 origin provider name encoding)
 UREF_ATTR_SMALL_UNSIGNED(ts_flow, service_type, "t.servtype", service type)
 UREF_ATTR_UNSIGNED(ts_flow, sdt_descriptors, "t.sdt.descs",
         number of SDT descriptors)
@@ -130,7 +132,9 @@ UREF_TS_ATTR_DESCRIPTOR(ts_flow, ecm_descriptor)
 
 /* NIT */
 UREF_ATTR_UNSIGNED(ts_flow, nid, "t.nid", network ID)
-UREF_ATTR_STRING(ts_flow, network_name, "t.netwname", network name)
+UREF_ATTR_STRING(ts_flow, network_name, "t.netname", network name)
+UREF_ATTR_STRING(ts_flow, network_name_orig_encoding, "t.network_name_orig_enc",
+                 network name origin encoding);
 UREF_ATTR_UNSIGNED(ts_flow, nit_descriptors, "t.nit.descs",
         number of NIT descriptors)
 UREF_ATTR_OPAQUE_VA(ts_flow, nit_descriptor, "t.nit.desc[%" PRIu64"]",

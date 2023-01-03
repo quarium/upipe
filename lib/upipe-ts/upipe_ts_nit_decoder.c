@@ -239,11 +239,19 @@ static void upipe_ts_nitd_parse_descs(struct upipe *upipe,
                     uint8_t networkname_length;
                     const uint8_t *networkname =
                         desc40_get_networkname(desc, &networkname_length);
+                    size_t tmp_length = networkname_length;
+                    const uint8_t *tmp = networkname;
+                    const char *networkname_encoding =
+                        dvb_string_get_encoding(&tmp, &tmp_length, NULL);
                     char *networkname_string =
                         dvb_string_get(networkname, networkname_length,
                                        upipe_ts_nitd_iconv_wrapper, upipe);
                     UBASE_FATAL(upipe, uref_ts_flow_set_network_name(flow_def,
                                 networkname_string))
+                    if (networkname_encoding)
+                        UBASE_FATAL(upipe,
+                                    uref_ts_flow_set_network_name_orig_encoding(
+                                        flow_def, networkname_encoding));
                     free(networkname_string);
                 }
                 break;

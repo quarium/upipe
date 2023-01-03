@@ -281,21 +281,39 @@ static void upipe_ts_eitd_parse_descs(struct upipe *upipe,
                                                                code, event))
 
                     uint8_t event_name_length, text_length;
+                    size_t tmp_length;
+                    const uint8_t *tmp;
                     const uint8_t *event_name =
                         desc4d_get_event_name(desc, &event_name_length);
                     const uint8_t *text =
                         desc4d_get_text(desc, &text_length);
+
+                    tmp = event_name;
+                    tmp_length = event_name_length;
+                    const char *event_name_encoding =
+                        dvb_string_get_encoding(&tmp, &tmp_length, NULL);
                     char *event_name_str =
                         dvb_string_get(event_name, event_name_length,
                                        upipe_ts_eitd_iconv_wrapper, upipe);
+                    tmp = text;
+                    tmp_length = text_length;
+                    const char *text_encoding =
+                        dvb_string_get_encoding(&tmp, &tmp_length, NULL);
                     char *text_str =
                         dvb_string_get(text, text_length,
                                        upipe_ts_eitd_iconv_wrapper, upipe);
 
                     UBASE_FATAL(upipe, uref_event_set_name(flow_def,
                                 event_name_str, event))
+                    if (event_name_encoding)
+                        UBASE_FATAL(upipe, uref_event_set_name_orig_encoding(
+                                flow_def, event_name_encoding, event));
                     UBASE_FATAL(upipe, uref_event_set_description(flow_def,
                                 text_str, event))
+                    if (text_encoding)
+                        UBASE_FATAL(upipe,
+                                    uref_event_set_description_orig_encoding(
+                                        flow_def, text_encoding, event))
                     free(event_name_str);
                     free(text_str);
                 }

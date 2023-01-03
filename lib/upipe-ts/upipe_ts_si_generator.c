@@ -144,6 +144,8 @@ struct upipe_ts_sig {
     uint64_t cr_sys_status;
     /** requested encoding */
     const char *encoding;
+    /** prefer source encoding? */
+    bool prefer_source_encoding;
 
     /** encoding of the following iconv handle */
     const char *current_encoding;
@@ -371,10 +373,21 @@ static int upipe_ts_sig_service_build_eit_event(struct upipe *upipe, uint64_t i,
         ubase_check(uref_event_get_description(service->flow_def,
                                                &description_str, i));
     if (desc4d) {
+        const char *encoding = NULL;
+        if (!sig->prefer_source_encoding ||
+            !ubase_check(uref_event_get_name_orig_encoding(
+                    service->flow_def, &encoding, i)))
+            encoding = sig->encoding;
         name = upipe_ts_sig_alloc_dvb_string(upipe_ts_sig_to_upipe(sig),
-                name_str, sig->encoding, &name_size);
+                name_str, encoding, &name_size);
+
+        encoding = NULL;
+        if (!sig->prefer_source_encoding ||
+            !ubase_check(uref_event_get_description_orig_encoding(
+                    service->flow_def, &encoding, i)))
+            encoding = sig->encoding;
         description = upipe_ts_sig_alloc_dvb_string(upipe_ts_sig_to_upipe(sig),
-                description_str, sig->encoding, &description_size);
+                description_str, encoding, &description_size);
     }
 
     size_t descriptors_size =
@@ -400,11 +413,31 @@ static int upipe_ts_sig_service_build_eit_event(struct upipe *upipe, uint64_t i,
     eitn_set_running(event, running);
     if (ca)
         eitn_set_ca(event);
-    eitn_set_desclength(event, descriptors_size +
-                        (desc4d ? (DESC4D_HEADER_SIZE + name_size + 1 +
-                                   description_size + 1) : 0));
+    descriptors_size = 0;
+    eitn_set_desclength(event, descriptors_size);
     uint16_t k = 0;
     if (desc4d) {
+        unsigned desc4d_length = DESC4D_HEADER_SIZE + 2 - DESC_HEADER_SIZE;
+
+        if (desc4d_length + name_size > UINT8_MAX) {
+            upipe_warn_va(upipe, "event name is too long");
+            name_size = UINT8_MAX - desc4d_length;
+            while (name_size && !isascii(name[name_size - 1]))
+                name_size--;
+        }
+        desc4d_length += name_size;
+
+        if (desc4d_length + description_size > UINT8_MAX) {
+            upipe_warn_va(upipe, "event description is too long");
+            description_size = UINT8_MAX - desc4d_length;
+            while (description_size && !isascii(description[description_size - 1]))
+                description_size--;
+        }
+        desc4d_length += description_size;
+
+        eitn_set_desclength(event, eitn_get_desclength(event) +
+                            DESC_HEADER_SIZE + desc4d_length);
+
         uint8_t *desc = descs_get_desc(eitn_get_descs(event), k++);
         desc4d_init(desc);
         desc4d_set_lang(desc, (const uint8_t *)language);
@@ -1019,6 +1052,7 @@ static struct upipe *_upipe_ts_sig_alloc(struct upipe_mgr *mgr,
     upipe_ts_sig->frozen = false;
     upipe_ts_sig->cr_sys_status = UINT64_MAX;
     upipe_ts_sig->encoding = DEFAULT_ENCODING;
+    upipe_ts_sig->prefer_source_encoding = false;
 
     upipe_ts_sig->nit_version = 0;
     ulist_init(&upipe_ts_sig->nit_sections);
@@ -1156,9 +1190,14 @@ static void upipe_ts_sig_build_nit(struct upipe *upipe)
     const char *network_name_str = DEFAULT_NAME;
     uref_ts_flow_get_network_name(sig->flow_def, &network_name_str);
     size_t network_name_size;
+    const char *encoding;
+    if (!sig->prefer_source_encoding ||
+        !ubase_check(uref_ts_flow_get_network_name_orig_encoding(
+                sig->flow_def, &encoding)))
+        encoding = sig->encoding;
     uint8_t *network_name =
         upipe_ts_sig_alloc_dvb_string(upipe, network_name_str,
-                                      sig->encoding, &network_name_size);
+                                      encoding, &network_name_size);
 
     size_t nit_descriptors_size = DESC40_HEADER_SIZE + network_name_size +
         uref_ts_flow_size_nit_descriptors(sig->flow_def);
@@ -1481,12 +1520,21 @@ static void upipe_ts_sig_build_sdt(struct upipe *upipe)
             uref_ts_flow_get_provider_name(upipe_ts_sig_service->flow_def,
                                            &provider_name_str);
             size_t service_name_size, provider_name_size;
+            const char *encoding;
+            if (!sig->prefer_source_encoding ||
+                !ubase_check(uref_flow_get_name_orig_encoding(
+                        upipe_ts_sig_service->flow_def, &encoding)))
+                encoding = sig->encoding;
             uint8_t *service_name =
                 upipe_ts_sig_alloc_dvb_string(upipe, service_name_str,
-                        sig->encoding, &service_name_size);
+                        encoding, &service_name_size);
+            if (!sig->prefer_source_encoding ||
+                !ubase_check(uref_ts_flow_get_provider_name_orig_encoding(
+                        upipe_ts_sig_service->flow_def, &encoding)))
+                encoding = sig->encoding;
             uint8_t *provider_name =
                 upipe_ts_sig_alloc_dvb_string(upipe, provider_name_str,
-                        sig->encoding, &provider_name_size);
+                        encoding, &provider_name_size);
 
 
             size_t descriptors_size =
@@ -2090,6 +2138,36 @@ static int upipe_ts_sig_set_encoding(struct upipe *upipe, const char *encoding)
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This returns the privilege encoding (source or configuration).
+ *
+ * @param upipe description structure of the pipe
+ * @param prefer_source filled with a non-zero value is the source encoding is
+ * privileged
+ * @return an error code
+ */
+static int _upipe_ts_sig_get_prefer_source_encoding(struct upipe *upipe,
+                                                    int *prefer_source)
+{
+    struct upipe_ts_sig *upipe_ts_sig = upipe_ts_sig_from_upipe(upipe);
+    if (prefer_source)
+        *prefer_source = upipe_ts_sig->prefer_source_encoding ? 1 : 0;
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the privilege encoding (source or configuration).
+ *
+ * @param upipe description structure of the pipe
+ * @param prefer_source prefer source encoding is not zero
+ * @return an error code
+ */
+static int _upipe_ts_sig_set_prefer_source_encoding(struct upipe *upipe,
+                                                    int prefer_source)
+{
+    struct upipe_ts_sig *upipe_ts_sig = upipe_ts_sig_from_upipe(upipe);
+    upipe_ts_sig->prefer_source_encoding = prefer_source != 0;
+    return UBASE_ERR_NONE;
+}
+
 /** @internal @This processes control commands.
  *
  * @param upipe description structure of the pipe
@@ -2180,6 +2258,19 @@ static int upipe_ts_sig_control(struct upipe *upipe, int command, va_list args)
             const char *encoding = va_arg(args, const char *);
             return upipe_ts_sig_set_encoding(upipe, encoding);
         }
+        case UPIPE_TS_MUX_GET_PREFER_SOURCE_ENCODING: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_TS_MUX_SIGNATURE);
+            int *prefer_source_encoding = va_arg(args, int *);
+            return _upipe_ts_sig_get_prefer_source_encoding(
+                upipe, prefer_source_encoding);
+        }
+        case UPIPE_TS_MUX_SET_PREFER_SOURCE_ENCODING: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_TS_MUX_SIGNATURE);
+            int prefer_source_encoding = va_arg(args, int);
+            return _upipe_ts_sig_set_prefer_source_encoding(
+                upipe, prefer_source_encoding);
+        }
+
         case UPIPE_TS_MUX_FREEZE_PSI: {
             UBASE_SIGNATURE_CHECK(args, UPIPE_TS_MUX_SIGNATURE)
             sig->frozen = true;

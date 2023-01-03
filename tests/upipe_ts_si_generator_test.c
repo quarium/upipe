@@ -76,6 +76,30 @@ static const char *psz_native_encoding = "UTF-8";
 static const char *psz_current_encoding = "";
 static iconv_t iconv_handle = (iconv_t)-1;
 
+struct eit_event {
+    unsigned id;
+    char lang[4];
+    const char *name;
+    const char *name_encoding;
+    const char *text;
+    const char *text_encoding;
+    bool done;
+};
+
+/* This two strings overflow the desc4d descriptor when both encoded in UTF-8 */
+static const char *const long_name = "Attention, ce flim n'est pas un flim sur "
+"le cyclimse, merci de votre compréhension.";
+static const char *const long_text = "J´aimerai bien qu´tu restes : on va "
+"manger des chips ! T´entends ? Des chips ! C´est tout s´que ça t´fait quand "
+"j´te dis qu´on va manger des chips ?? Mais qu´est...";
+
+static struct eit_event eit_events[] = {
+    { 0, "unk", "meuh1", NULL, "gaga1", NULL, false },
+    { 1, "unk", "meuh2", NULL, "gaga2", NULL, false },
+    { 2, "unk", "meuh3", NULL, "gaga3", NULL, false },
+    { 3, "fre", long_name, "UTF-8", long_text, "ISO-8859-9", false },
+};
+
 /** iconv wrapper from biTStream */
 static char *iconv_append_null(const char *p_string, size_t i_length)
 {
@@ -151,6 +175,13 @@ static struct upipe *test_alloc(struct upipe_mgr *mgr, struct uprobe *uprobe,
     assert(upipe != NULL);
     upipe_init(upipe, mgr, uprobe);
     return upipe;
+}
+
+static int strcmpnull(const char *s1, const char *s2)
+{
+    if (!s1 || !s2)
+        return s1 == s2 ? 0 : s2 - s1;
+    return strcmp(s1, s2);
 }
 
 /** helper phony pipe */
@@ -248,18 +279,17 @@ static void test_input(struct upipe *upipe, struct uref *uref,
             assert(eit_validate(buffer));
             assert(eit_get_tsid(buffer) == 42);
             assert(eit_get_onid(buffer) == 44);
-            const uint8_t *event = eit_get_event((uint8_t *)buffer, 0);
+
             if (psi_get_tableid(buffer) == EIT_TABLE_ID_PF_ACTUAL) {
                 assert(psi_get_section(buffer) || !eit);
                 assert(psi_get_lastsection(buffer) == 1);
                 assert(eit_get_segment_last_sec_number(buffer) == 1);
                 assert(eit_get_last_table_id(buffer) == EIT_TABLE_ID_PF_ACTUAL);
-                assert(eitn_get_event_id(event) == psi_get_section(buffer));
                 if (psi_get_section(buffer)) {
                     assert(cr > UINT32_MAX);
                     eit = true;
                 } else
-                    assert(cr == UINT32_MAX);
+                    assert(cr == UINT32_MAX || cr == UINT32_MAX + UCLOCK_FREQ);
             } else {
                 assert(!eit);
                 assert(psi_get_tableid(buffer) == EIT_TABLE_ID_SCHED_ACTUAL_FIRST);
@@ -267,34 +297,55 @@ static void test_input(struct upipe *upipe, struct uref *uref,
                 assert(psi_get_lastsection(buffer) == 0);
                 assert(eit_get_segment_last_sec_number(buffer) == 0);
                 assert(eit_get_last_table_id(buffer) == EIT_TABLE_ID_SCHED_ACTUAL_FIRST);
-                assert(eitn_get_event_id(event) == 2);
                 assert(cr == UINT32_MAX + 2 * UCLOCK_FREQ / 4);
                 eit = true;
             }
 
-            assert(eitn_get_start_time(event) == UINT64_C(0xC079124500));
-            assert(eitn_get_duration_bcd(event) == UINT32_C(0x014530));
-            assert(eitn_get_running(event) == 5);
-            assert(!eitn_get_ca(event));
-            assert(eitn_get_desclength(event) == DESC4D_HEADER_SIZE + 10);
+            const uint8_t *event;
+            for (unsigned i = 0; (event = eit_get_event(buffer, i)); i++) {
+                unsigned event_id = eitn_get_event_id(event);
+                if (psi_get_tableid(buffer) == EIT_TABLE_ID_PF_ACTUAL)
+                    assert(event_id == psi_get_section(buffer));
+                else
+                    assert(event_id >= 2);
+                assert(event_id < UBASE_ARRAY_SIZE(eit_events));
+                struct eit_event *e = &eit_events[event_id];
+                assert(!e->done);
+                e->done = true;
 
-            const uint8_t *desc =
-                descs_get_desc(eitn_get_descs((uint8_t *)event), 0);
-            assert(!strncmp((const char *)desc4d_get_lang(desc), "unk", 3));
-            uint8_t event_name_length, text_length;
-            const uint8_t *event_name =
-                desc4d_get_event_name(desc, &event_name_length);
-            const uint8_t *text =
-                desc4d_get_text(desc, &text_length);
-            char *event_name_str =
-                dvb_string_get(event_name, event_name_length, iconv_wrapper, NULL);
-            char *text_str =
-                dvb_string_get(text, text_length, iconv_wrapper, NULL);
-            assert(!strncmp(event_name_str, "meuh", event_name_length));
-            assert(!strncmp(text_str, "gaga", text_length));
-            free(event_name_str);
-            free(text_str);
-            upipe_dbg(upipe, "received EIT");
+                assert(eitn_get_start_time(event) == UINT64_C(0xC079124500));
+                assert(eitn_get_duration_bcd(event) == UINT32_C(0x014530));
+                assert(eitn_get_running(event) == 5);
+                assert(!eitn_get_ca(event));
+
+                assert(i != 0 || eitn_get_desclength(event) == DESC4D_HEADER_SIZE + 12);
+
+                const uint8_t *desc =
+                    descs_get_desc(eitn_get_descs((uint8_t *)event), 0);
+                assert(!strncmp((const char *)desc4d_get_lang(desc),
+                                e->lang, 3));
+                uint8_t event_name_length, text_length;
+                const uint8_t *event_name =
+                    desc4d_get_event_name(desc, &event_name_length);
+                const uint8_t *text =
+                    desc4d_get_text(desc, &text_length);
+                const char *event_name_encoding =
+                    dvb_string_encoding(event_name, event_name_length, NULL);
+                assert(strcmpnull(event_name_encoding, e->name_encoding) == 0);
+                const char *text_encoding =
+                    dvb_string_encoding(text, text_length, NULL);
+                assert(strcmpnull(text_encoding, e->text_encoding) == 0);
+                char *event_name_str =
+                    dvb_string_get(event_name, event_name_length, iconv_wrapper, NULL);
+                char *text_str =
+                    dvb_string_get(text, text_length, iconv_wrapper, NULL);
+                upipe_notice_va(upipe, "received EIT %s - %s",
+                                event_name_str, text_str);
+                assert(!strcmp(event_name_str, e->name));
+                assert(!strcmp(text_str, e->text));
+                free(event_name_str);
+                free(text_str);
+            }
             break;
         }
 
@@ -430,6 +481,8 @@ int main(int argc, char *argv[])
     ubase_assert(upipe_ts_mux_set_sdt_interval(upipe_ts_sig, UCLOCK_FREQ));
     ubase_assert(upipe_ts_mux_set_tdt_interval(upipe_ts_sig, UCLOCK_FREQ));
     ubase_assert(upipe_ts_mux_set_eits_octetrate(upipe_ts_sig, 1000000));
+    ubase_assert(upipe_ts_mux_set_encoding(upipe_ts_sig, psz_native_encoding));
+    ubase_assert(upipe_ts_mux_set_prefer_source_encoding(upipe_ts_sig, true));
     uref_free(uref);
 
     /* services */
@@ -443,7 +496,7 @@ int main(int argc, char *argv[])
     ubase_assert(uref_flow_set_name(uref, "bu"));
     ubase_assert(uref_ts_flow_set_provider_name(uref, "zo"));
     ubase_assert(uref_ts_flow_set_service_type(uref, 1));
-    ubase_assert(uref_event_set_events(uref, 3));
+    ubase_assert(uref_event_set_events(uref, UBASE_ARRAY_SIZE(eit_events)));
     struct tm tm;
     tm.tm_year = 93;
     tm.tm_mon = 10 - 1;
@@ -452,33 +505,27 @@ int main(int argc, char *argv[])
     tm.tm_min = 45;
     tm.tm_sec = 0;
     tm.tm_isdst = 0;
-    ubase_assert(uref_event_set_id(uref, 0, 0));
-    ubase_assert(uref_event_set_start(uref, (uint64_t)mktime(&tm) * UCLOCK_FREQ,
-                0));
-    ubase_assert(uref_event_set_duration(uref, (uint64_t)6330 * UCLOCK_FREQ,
-                0));
-    ubase_assert(uref_ts_event_set_running_status(uref, 5, 0));
-    ubase_assert(uref_event_set_language(uref, "unk", 0));
-    ubase_assert(uref_event_set_name(uref, "meuh", 0));
-    ubase_assert(uref_event_set_description(uref, "gaga", 0));
-    ubase_assert(uref_event_set_id(uref, 1, 1));
-    ubase_assert(uref_event_set_start(uref, (uint64_t)mktime(&tm) * UCLOCK_FREQ,
-                1));
-    ubase_assert(uref_event_set_duration(uref, (uint64_t)6330 * UCLOCK_FREQ,
-                1));
-    ubase_assert(uref_ts_event_set_running_status(uref, 5, 1));
-    ubase_assert(uref_event_set_language(uref, "unk", 1));
-    ubase_assert(uref_event_set_name(uref, "meuh", 1));
-    ubase_assert(uref_event_set_description(uref, "gaga", 1));
-    ubase_assert(uref_event_set_id(uref, 2, 2));
-    ubase_assert(uref_event_set_start(uref, (uint64_t)mktime(&tm) * UCLOCK_FREQ,
-                2));
-    ubase_assert(uref_event_set_duration(uref, (uint64_t)6330 * UCLOCK_FREQ,
-                2));
-    ubase_assert(uref_ts_event_set_running_status(uref, 5, 2));
-    ubase_assert(uref_event_set_language(uref, "unk", 2));
-    ubase_assert(uref_event_set_name(uref, "meuh", 2));
-    ubase_assert(uref_event_set_description(uref, "gaga", 2));
+
+    for (unsigned i = 0; i < UBASE_ARRAY_SIZE(eit_events); i++) {
+        const struct eit_event *e = &eit_events[i];
+
+        uint64_t start = (uint64_t)mktime(&tm) * UCLOCK_FREQ;
+        uint64_t duration = (uint64_t)6330 * UCLOCK_FREQ;
+
+        ubase_assert(uref_event_set_id(uref, e->id, i));
+        ubase_assert(uref_event_set_start(uref, start, i));
+        ubase_assert(uref_event_set_duration(uref, duration, i));
+        ubase_assert(uref_ts_event_set_running_status(uref, 5, i));
+        ubase_assert(uref_event_set_language(uref, e->lang, i));
+        ubase_assert(uref_event_set_name(uref, e->name, i));
+        if (e->name_encoding && strcmp(e->name_encoding, psz_native_encoding))
+            ubase_assert(uref_event_set_name_orig_encoding(
+                    uref, e->name_encoding, i));
+        ubase_assert(uref_event_set_description(uref, e->text, i));
+        if (e->text_encoding && strcmp(e->text_encoding, psz_native_encoding))
+            ubase_assert(uref_event_set_description_orig_encoding(
+                    uref, e->text_encoding, i));
+    }
 
     struct upipe *upipe_ts_sig_service1 = upipe_void_alloc_sub(upipe_ts_sig,
             uprobe_pfx_alloc(uprobe_use(logger), UPROBE_LOG_LEVEL,
@@ -514,6 +561,8 @@ int main(int argc, char *argv[])
     eit = false;
     ubase_assert(upipe_ts_mux_prepare(upipe_ts_sig, UINT32_MAX + UCLOCK_FREQ / 2, 0));
     assert(eit);
+    for (unsigned i = 0; i < UBASE_ARRAY_SIZE(eit_events); i++)
+        assert(eit_events[i].done == true);
 
     upipe_release(upipe_ts_sig_service1);
 

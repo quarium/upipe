@@ -165,6 +165,10 @@ enum upipe_ts_mux_command {
     UPIPE_TS_MUX_PREPARE,
     /** sets the mux maximum octetrate (uint64_t) */
     UPIPE_TS_MUX_SET_MAX_OCTETRATE,
+    /** returns the privilege encoding (int *) */
+    UPIPE_TS_MUX_GET_PREFER_SOURCE_ENCODING,
+    /** sets the privilege encoding (int) */
+    UPIPE_TS_MUX_SET_PREFER_SOURCE_ENCODING,
 
     /** ts_encaps commands begin here */
     UPIPE_TS_MUX_ENCAPS = UPIPE_CONTROL_LOCAL + 0x1000,
@@ -719,6 +723,34 @@ static inline int upipe_ts_mux_set_encoding(struct upipe *upipe,
 {
     return upipe_control(upipe, UPIPE_TS_MUX_SET_ENCODING,
                          UPIPE_TS_MUX_SIGNATURE, encoding);
+}
+
+/** @This returns if the source encoding is privileged or not.
+ *
+ * @param upipe description structure of the pipe
+ * @param prefer_source filled with a non-zero value is the source encoding is
+ * privileged
+ * @return an error code
+ */
+static inline int upipe_ts_mux_get_prefer_source_encoding(struct upipe *upipe,
+                                                          int *prefer_source)
+{
+    return upipe_control(upipe, UPIPE_TS_MUX_GET_PREFER_SOURCE_ENCODING,
+                         UPIPE_TS_MUX_SIGNATURE, prefer_source);
+}
+
+/** @This sets if the source encoding is privileged over the configured
+ * encoding or not.
+ *
+ * @param upipe description structure of the pipe
+ * @param prefer_source prefer source encoding is not zero
+ * @return an error code
+ */
+static inline int upipe_ts_mux_set_prefer_source_encoding(struct upipe *upipe,
+                                                          int prefer_source)
+{
+    return upipe_control(upipe, UPIPE_TS_MUX_SET_PREFER_SOURCE_ENCODING,
+                         UPIPE_TS_MUX_SIGNATURE, prefer_source);
 }
 
 /** @This stops updating a PSI table upon sub removal.

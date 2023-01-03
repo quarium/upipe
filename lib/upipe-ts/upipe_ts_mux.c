@@ -317,6 +317,8 @@ struct upipe_ts_mux {
     int aac_signaling;
     /** encoding */
     const char *encoding;
+    /** prefer source encoding? */
+    bool prefer_source_encoding;
     /** last attributed automatic SID */
     uint16_t sid_auto;
     /** last attributed automatic PID */
@@ -2654,6 +2656,7 @@ static struct upipe *upipe_ts_mux_alloc(struct upipe_mgr *mgr,
     upipe_ts_mux->aac_encaps = DEFAULT_AAC_ENCAPS;
     upipe_ts_mux->aac_signaling = DEFAULT_AAC_SIGNALING;
     upipe_ts_mux->encoding = DEFAULT_ENCODING;
+    upipe_ts_mux->prefer_source_encoding = false;
     upipe_ts_mux->max_delay = UINT64_MAX;
     upipe_ts_mux->mux_delay = DEFAULT_MUX_DELAY;
     upipe_ts_mux->initial_cr_prog = UINT64_MAX;
@@ -3639,6 +3642,8 @@ static void upipe_ts_mux_update_sig(struct upipe *upipe)
         return;
     }
     upipe_ts_mux_set_encoding(mux->sig, mux->encoding);
+    upipe_ts_mux_set_prefer_source_encoding(
+        mux->sig, mux->prefer_source_encoding);
     upipe_ts_mux_set_eits_octetrate(mux->sig, mux->eits_octetrate);
 
     struct uchain *uchain;
@@ -4431,6 +4436,40 @@ static int _upipe_ts_mux_set_encoding(struct upipe *upipe, const char *encoding)
     return UBASE_ERR_NONE;
 }
 
+/** @internal @This returns the privilege encoding (source or configuration).
+ *
+ * @param upipe description structure of the pipe
+ * @param prefer_source filled with a non-zero value is the source encoding is
+ * privileged
+ * @return an error code
+ */
+static int _upipe_ts_mux_get_prefer_source_encoding(struct upipe *upipe,
+                                                    int *prefer_source)
+{
+    struct upipe_ts_mux *upipe_ts_mux = upipe_ts_mux_from_upipe(upipe);
+    if (prefer_source)
+        *prefer_source = upipe_ts_mux->prefer_source_encoding ? 1 : 0;
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the privilege encoding (source or configuration).
+ *
+ * @param upipe description structure of the pipe
+ * @param prefer_source prefer source encoding is not zero
+ * @return an error code
+ */
+static int _upipe_ts_mux_set_prefer_source_encoding(struct upipe *upipe,
+                                                    int prefer_source)
+{
+    struct upipe_ts_mux *upipe_ts_mux = upipe_ts_mux_from_upipe(upipe);
+    upipe_ts_mux->prefer_source_encoding = prefer_source != 0;
+
+    if (upipe_ts_mux->sig != NULL)
+        upipe_ts_mux_set_prefer_source_encoding(
+            upipe_ts_mux->sig, prefer_source);
+    return UBASE_ERR_NONE;
+}
+
 /** @internal @This processes control commands on a ts_mux pipe.
  *
  * @param upipe description structure of the pipe
@@ -4662,6 +4701,19 @@ static int _upipe_ts_mux_control(struct upipe *upipe, int command, va_list args)
             const char *encoding = va_arg(args, const char *);
             return _upipe_ts_mux_set_encoding(upipe, encoding);
         }
+        case UPIPE_TS_MUX_GET_PREFER_SOURCE_ENCODING: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_TS_MUX_SIGNATURE);
+            int *prefer_source_encoding = va_arg(args, int *);
+            return _upipe_ts_mux_get_prefer_source_encoding(
+                upipe, prefer_source_encoding);
+        }
+        case UPIPE_TS_MUX_SET_PREFER_SOURCE_ENCODING: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_TS_MUX_SIGNATURE);
+            int prefer_source_encoding = va_arg(args, int);
+            return _upipe_ts_mux_set_prefer_source_encoding(
+                upipe, prefer_source_encoding);
+        }
+
         case UPIPE_TS_MUX_SET_MAX_OCTETRATE: {
             UBASE_SIGNATURE_CHECK(args, UPIPE_TS_MUX_SIGNATURE)
             uint64_t max_octetrate = va_arg(args, uint64_t);

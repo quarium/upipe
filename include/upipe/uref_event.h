@@ -51,8 +51,13 @@ UREF_ATTR_STRING_VA(event, language, "e.lang[%" PRIu64"]",
         event ISO-639 language, uint64_t event, event)
 UREF_ATTR_STRING_VA(event, name, "e.name[%" PRIu64"]", event name,
         uint64_t event, event)
+UREF_ATTR_STRING_VA(event, name_orig_encoding, "e.name_orig_enc[%" PRIu64"]",
+                    event name origin encoding, uint64_t event, event)
 UREF_ATTR_STRING_VA(event, description, "e.desc[%" PRIu64"]", event description,
         uint64_t event, event)
+UREF_ATTR_STRING_VA(event, description_orig_encoding,
+                    "e.desc_orig_enc[%" PRIu64"]",
+                    event description origin encoding, uint64_t event, event)
 
 #ifdef __cplusplus
 }
