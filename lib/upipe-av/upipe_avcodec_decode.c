@@ -535,11 +535,11 @@ static int upipe_avcdec_get_buffer_sound(struct AVCodecContext *context,
 
     /* Check if we have a new sample format. */
     if (unlikely(context->sample_fmt != upipe_avcdec->sample_fmt ||
-                 context->channels != upipe_avcdec->channels)) {
+                 context->ch_layout.nb_channels != upipe_avcdec->channels)) {
         ubuf_mgr_release(upipe_avcdec->ubuf_mgr);
         upipe_avcdec->ubuf_mgr = NULL;
         upipe_avcdec->sample_fmt = context->sample_fmt;
-        upipe_avcdec->channels = context->channels;
+        upipe_avcdec->channels = context->ch_layout.nb_channels;
     }
 
     /* Prepare flow definition attributes. */
@@ -551,7 +551,7 @@ static int upipe_avcdec_get_buffer_sound(struct AVCodecContext *context,
     }
     UBASE_FATAL(upipe, upipe_av_samplefmt_to_flow_def(flow_def_attr,
                                                upipe_avcdec->sample_fmt,
-                                               context->channels));
+                                               context->ch_layout.nb_channels));
     /* at the moment sample_rate is not filled until the first output */
     if (context->sample_rate)
         UBASE_FATAL(upipe, uref_sound_flow_set_rate(flow_def_attr,
@@ -606,11 +606,11 @@ static int upipe_avcdec_get_buffer_sound(struct AVCodecContext *context,
                          frame->nb_samples;
 
     frame->buf[0] = av_buffer_create(frame->data[0],
-            frame->linesize[0] * context->channels, upipe_av_uref_sound_free,
-            uref, 0);
+            frame->linesize[0] * context->ch_layout.nb_channels,
+            upipe_av_uref_sound_free, uref, 0);
 
     if (!av_sample_fmt_is_planar(context->sample_fmt))
-        frame->linesize[0] *= context->channels;
+        frame->linesize[0] *= context->ch_layout.nb_channels;
 
     frame->extended_data = frame->data;
 
@@ -1298,7 +1298,8 @@ static void upipe_avcdec_output_sound(struct upipe *upipe,
             return;
         }
         int err = av_samples_copy(buffers, frame->data, 0, 0, frame->nb_samples,
-                                  context->channels, context->sample_fmt);
+                                  context->ch_layout.nb_channels,
+                                  context->sample_fmt);
         UBASE_ERROR(upipe, uref_sound_unmap(uref, 0, -1,
                                             AV_NUM_DATA_POINTERS))
         if (err < 0)
