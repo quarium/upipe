@@ -1,6 +1,7 @@
 myincludedir = $(includedir)/upipe-av
 myinclude_HEADERS = \
 	upipe_av.h \
+	upipe_av_pixdesc.h \
 	upipe_av_pixfmt.h \
 	upipe_av_samplefmt.h \
 	upipe_avcodec_decode.h \

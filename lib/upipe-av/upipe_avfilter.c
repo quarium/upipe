@@ -51,6 +51,7 @@
 #include "upipe/upipe_helper_sync.h"
 #include "upipe-av/upipe_avfilter.h"
 #include "upipe-av/upipe_av_pixfmt.h"
+#include "upipe-av/upipe_av_pixdesc.h"
 #include "upipe-av/upipe_av_samplefmt.h"
 #include "upipe-av/uref_avfilter_flow.h"
 #include "upipe-av/ubuf_av.h"
@@ -2170,69 +2171,20 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
             UBASE_ERROR(upipe, uref_pic_flow_set_full_range(flow_def_attr))
 
         const char *str = NULL;
-        switch (frame->color_primaries) {
-            case AVCOL_PRI_BT709: str = "bt709"; break;
-            case AVCOL_PRI_BT470M: str = "bt470m"; break;
-            case AVCOL_PRI_BT470BG: str = "bt470bg"; break;
-            case AVCOL_PRI_SMPTE170M: str = "smpte170m"; break;
-            case AVCOL_PRI_SMPTE240M: str = "smpte240m"; break;
-            case AVCOL_PRI_FILM: str = "film"; break;
-            case AVCOL_PRI_BT2020: str = "bt2020"; break;
-            case AVCOL_PRI_SMPTE428: str = "smpte428"; break;
-            case AVCOL_PRI_SMPTE431: str = "smpte431"; break;
-            case AVCOL_PRI_SMPTE432: str = "smpte432"; break;
-#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(56, 34, 100)
-            case AVCOL_PRI_EBU3213: str = "ebu3213"; break;
-#endif
-            default: break;
-        }
+
+        str = upipe_av_color_primaries_to_upipe(frame->color_primaries);
         if (str != NULL) {
             UBASE_ERROR(upipe, uref_pic_flow_set_colour_primaries(
                     flow_def_attr, str))
         }
 
-        str = NULL;
-        switch (frame->color_trc) {
-            case AVCOL_TRC_BT709: str = "bt709"; break;
-            case AVCOL_TRC_GAMMA22: str = "bt470m"; break;
-            case AVCOL_TRC_GAMMA28: str = "bt470bg"; break;
-            case AVCOL_TRC_SMPTE170M: str = "smpte170m"; break;
-            case AVCOL_TRC_SMPTE240M: str = "smpte240m"; break;
-            case AVCOL_TRC_LINEAR: str = "linear"; break;
-            case AVCOL_TRC_LOG: str = "log100"; break;
-            case AVCOL_TRC_LOG_SQRT: str = "log316"; break;
-            case AVCOL_TRC_IEC61966_2_4: str = "iec61966-2-4"; break;
-            case AVCOL_TRC_BT1361_ECG: str = "bt1361e"; break;
-            case AVCOL_TRC_IEC61966_2_1: str = "iec61966-2-1"; break;
-            case AVCOL_TRC_BT2020_10: str = "bt2020-10"; break;
-            case AVCOL_TRC_BT2020_12: str = "bt2020-12"; break;
-            case AVCOL_TRC_SMPTE2084: str = "smpte2084"; break;
-            case AVCOL_TRC_SMPTE428: str = "smpte428"; break;
-            case AVCOL_TRC_ARIB_STD_B67: str = "arib-std-b67"; break;
-            default: break;
-        }
+        str = upipe_av_color_transfer_characteristic_to_upipe(frame->color_trc);
         if (str != NULL) {
             UBASE_ERROR(upipe, uref_pic_flow_set_transfer_characteristics(
                     flow_def_attr, str))
         }
 
-        str = NULL;
-        switch (frame->colorspace) {
-            case AVCOL_SPC_RGB: str = "GBR"; break;
-            case AVCOL_SPC_BT709: str = "bt709"; break;
-            case AVCOL_SPC_FCC: str = "fcc"; break;
-            case AVCOL_SPC_BT470BG: str = "bt470bg"; break;
-            case AVCOL_SPC_SMPTE170M: str = "smpte170m"; break;
-            case AVCOL_SPC_SMPTE240M: str = "smpte240m"; break;
-            case AVCOL_SPC_YCGCO: str = "YCgCo"; break;
-            case AVCOL_SPC_BT2020_NCL: str = "bt2020nc"; break;
-            case AVCOL_SPC_BT2020_CL: str = "bt2020c"; break;
-            case AVCOL_SPC_SMPTE2085: str = "smpte2085"; break;
-            case AVCOL_SPC_CHROMA_DERIVED_NCL: str = "chroma-nc"; break;
-            case AVCOL_SPC_CHROMA_DERIVED_CL: str = "chroma-c"; break;
-            case AVCOL_SPC_ICTCP: str = "ictcp"; break;
-            default: break;
-        }
+        str = upipe_av_color_space_to_upipe(frame->colorspace);
         if (str != NULL) {
             UBASE_ERROR(upipe, uref_pic_flow_set_matrix_coefficients(
                     flow_def_attr, str))
@@ -2339,54 +2291,6 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
     upipe_avfilt_output(upipe, uref, upump_p);
 }
 
-/** @This allows to convert from Upipe color space to av color space. */
-struct upipe_av_color {
-    /** Upipe color */
-    const char *upipe_color;
-    /** av color */
-    const char *av_color;
-};
-
-/** @This converts transfer characteristics from Upipe to av. */
-static const struct upipe_av_color upipe_av_color_transfer[] = {
-    { "bt470m", "gamma22" },
-    { "bt470bg", "gamma28" },
-    { "log100", "log" },
-    { "log316", "log_sqrt" },
-    { "iec61966-2-4", "iec61966_2_4" },
-    { "bt1361e", "bt1361" },
-    { "iec61966-2-1", "iec61966_2_1" },
-    { "bt2020-10", "bt2020-10bit" },
-    { "bt2020-12", "bt2020-12bit" },
-    { NULL, NULL }
-};
-
-/** @This converts matrix coefficients from Upipe to av. */
-static const struct upipe_av_color upipe_av_color_space[] = {
-    { "GBR", "rgb" },
-    { "YCgCo", "ycocg" },
-    { "bt2020nc", "bt2020_ncl" },
-    { "bt2020c", "bt2020_cl" },
-    { NULL, NULL }
-};
-
-/** @internal @This converts a Upipe color space to av color space.
- *
- * @param list conversion list
- * @param upipe_color Upipe color
- * @return av color
- */
-static const char *upipe_av_convert_color(
-    const struct upipe_av_color *list,
-    const char *upipe_color)
-{
-    for (int i = 0; list[i].upipe_color != NULL; i++)
-        if (!strcmp(list[i].upipe_color, upipe_color))
-            return list[i].av_color;
-
-    return upipe_color;
-}
-
 /** @internal @This converts an uref pic to an avframe.
  *
  * @param upipe description structure of the pipe
@@ -2447,15 +2351,15 @@ static int upipe_avfilt_avframe_from_uref_pic(struct upipe *upipe,
 
 #define frame_set(name, api, content) \
     if (ubase_check(ret)) { \
-        if ((err = av_ ## api ## _from_name(content)) < 0) \
-            upipe_err_va(upipe, "can't set option " #name "=%s: %s", \
-                         content, av_err2str(err)); \
-        else frame->name = err; \
+        int av_value = upipe_av_##api##_from_upipe(content); \
+        if (av_value < 0) \
+            upipe_err_va(upipe, "can't set option " #name "=%s", content); \
+        else frame->name = av_value; \
     }
 
     struct uref *flow_def = upipe_avfilt->flow_def_input;
     const char *content;
-    int err, ret = UBASE_ERR_NONE;
+    int ret = UBASE_ERR_NONE;
 
     frame->color_range = ubase_check(uref_pic_flow_get_full_range(
             flow_def)) ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
@@ -2464,12 +2368,10 @@ static int upipe_avfilt_avframe_from_uref_pic(struct upipe *upipe,
     frame_set(color_primaries, color_primaries, content);
 
     ret = uref_pic_flow_get_transfer_characteristics(flow_def, &content);
-    frame_set(color_trc, color_transfer,
-            upipe_av_convert_color(upipe_av_color_transfer, content));
+    frame_set(color_trc, color_transfer_characteristic, content);
 
     ret = uref_pic_flow_get_matrix_coefficients(flow_def, &content);
-    frame_set(colorspace, color_space,
-            upipe_av_convert_color(upipe_av_color_space, content));
+    frame_set(colorspace, color_space, content);
 
 #undef frame_set
 
