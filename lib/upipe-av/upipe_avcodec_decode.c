@@ -1208,18 +1208,23 @@ static void upipe_avcdec_output_pic(struct upipe *upipe, struct upump **upump_p)
 
     UBASE_FATAL(upipe, uref_pic_set_tf(uref))
     UBASE_FATAL(upipe, uref_pic_set_bf(uref))
-    if (!frame->interlaced_frame)
+    if (!(frame->flags & AV_FRAME_FLAG_INTERLACED))
         UBASE_FATAL(upipe, uref_pic_set_progressive(uref))
-    else if (frame->top_field_first)
+    else if (frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST)
         UBASE_FATAL(upipe, uref_pic_set_tff(uref))
 
-    if (context->time_base.den)
+    if (context->time_base.den) {
+        uint64_t ticks_per_frame = 1;
+        if (context->codec_descriptor->props & AV_CODEC_PROP_FIELDS)
+            ticks_per_frame++;
+
         UBASE_FATAL(upipe, uref_clock_set_duration(uref,
-                (uint64_t)(2 + frame->repeat_pict) * context->ticks_per_frame *
+                (uint64_t)(2 + frame->repeat_pict) * ticks_per_frame *
                 UCLOCK_FREQ * context->time_base.num /
                 (2 * context->time_base.den)))
+    }
 
-    if (frame->key_frame)
+    if (frame->flags & AV_FRAME_FLAG_KEY)
         uref_pic_set_key(uref);
 
     side_data = av_frame_get_side_data(frame, AV_FRAME_DATA_AFD);

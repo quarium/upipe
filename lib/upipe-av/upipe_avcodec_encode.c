@@ -930,8 +930,10 @@ static void upipe_avcenc_encode_video(struct upipe *upipe,
         frame->format = context->pix_fmt;
         frame->width = hsize;
         frame->height = vsize;
-        frame->interlaced_frame = !ubase_check(uref_pic_get_progressive(uref));
-        frame->top_field_first = ubase_check(uref_pic_get_tff(uref));
+        if (!ubase_check(uref_pic_get_progressive(uref)))
+            frame->flags |= AV_FRAME_FLAG_INTERLACED;
+        if (ubase_check(uref_pic_get_tff(uref)))
+            frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
     }
 
     /* set picture type */
