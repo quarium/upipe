@@ -73,9 +73,13 @@ case "${host_os}" in
         ARCH_X86_64=1
         ;;
     esac
+    AC_DEFINE(HAVE_SECTION_DATA_REL_RO, 1, Define to 1 if section data.rel.ro is supported)
     ;;
 esac
 
+AS_IF([test ${host_os} = darwin],
+      AC_DEFINE(EXTERN_ASM, _, Mangling prefix),
+      AC_DEFINE(EXTERN_ASM, , Mangling prefix))
 AM_CONDITIONAL(HAVE_X86ASM, test -n "${NASM}" -a -n "${NASMFLAGS}")
 AM_COND_IF(HAVE_X86ASM, AC_DEFINE(HAVE_X86ASM, 1, Define to 1 if an x86 assembler is available))
 
@@ -222,7 +226,7 @@ AC_EGREP_HEADER(timespec,sys/time.h,[
         AC_MSG_RESULT(no)
 ])
 
-AC_MSG_CHECKING([for eventfd]) 
+AC_MSG_CHECKING([for eventfd])
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
         [[#include <sys/eventfd.h>]],
         [[eventfd (0, 0);]])
@@ -231,7 +235,21 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
         AC_DEFINE(HAVE_EVENTFD, 1, Define if the OS supports eventfd(2).)
 ],[
         AC_MSG_RESULT([no])
-]) 
+])
+
+AC_MSG_CHECKING([for as func])
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+        [[]],
+        [[
+         asm(".func test\n\t"
+             ".endfunc");
+         ]])
+],[
+        AC_MSG_RESULT([yes])
+        AC_DEFINE(HAVE_AS_FUNC, 1, Define if the OS supports assembly .func.)
+],[
+        AC_MSG_RESULT([no])
+])
 
 AC_SUBST(SHREXT, "$shrext")
 
