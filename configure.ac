@@ -51,6 +51,7 @@ case "${host_os}" in
         ARCH_X86_64=1
         ;;
     esac
+    AC_DEFINE(EXTERN_ASM, _, Mangling prefix),
     ;;
     *mingw32*)
     case "${host}" in
@@ -77,9 +78,6 @@ case "${host_os}" in
     ;;
 esac
 
-AS_IF([test ${host_os} = darwin],
-      AC_DEFINE(EXTERN_ASM, _, Mangling prefix),
-      AC_DEFINE(EXTERN_ASM, , Mangling prefix))
 AM_CONDITIONAL(HAVE_X86ASM, test -n "${NASM}" -a -n "${NASMFLAGS}")
 AM_COND_IF(HAVE_X86ASM, AC_DEFINE(HAVE_X86ASM, 1, Define to 1 if an x86 assembler is available))
 
