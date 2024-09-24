@@ -24,6 +24,8 @@
  */
 
 #include "upipe/ulist.h"
+#include "upipe/upump.h"
+#include "upipe/upump_blocker.h"
 #include "upipe/upipe_helper_upipe.h"
 #include "upipe/upipe_helper_urefcount.h"
 #include "upipe/upipe_helper_urefcount_real.h"
@@ -98,6 +100,12 @@ struct upipe_grid_in {
     struct uchain uchain;
     /** list of input urefs */
     struct uchain urefs;
+    /** number of buffered urefs */
+    uint64_t nb_urefs;
+    /** maximum buffered urefs before blocking source */
+    uint64_t max_urefs;
+    /** list of source blockers */
+    struct uchain blockers;
     /** input flow def */
     struct uref *flow_def;
     /** current input flow def */
@@ -252,6 +260,9 @@ static struct upipe *upipe_grid_in_alloc(struct upipe_mgr *mgr,
     struct upipe_grid_in *upipe_grid_in =
         upipe_grid_in_from_upipe(upipe);
     ulist_init(&upipe_grid_in->urefs);
+    upipe_grid_in->nb_urefs = 0;
+    upipe_grid_in->max_urefs = 5;
+    ulist_init(&upipe_grid_in->blockers);
     upipe_grid_in->last_pts = 0;
     upipe_grid_in->latency = 0;
     upipe_grid_in->next_update = 0;
@@ -301,6 +312,47 @@ static int upipe_grid_in_catch(struct uprobe *uprobe,
         }
     }
     return uprobe_throw_next(uprobe, upipe, event, args);
+}
+
+/** @internal @this is called when the source pump is released by its owner.
+ *
+ * @param blocker description structure of the blocker
+ */
+static void upipe_grid_in_block_cb(struct upump_blocker *blocker)
+{
+    ulist_delete(upump_blocker_to_uchain(blocker));
+    upump_blocker_free(blocker);
+}
+
+/** @internal @This blocks the input source.
+ *
+ * @param upipe description of the pipe structure
+ * @param upump_p reference to pump that generated the buffer
+ */
+static void upipe_grid_in_block(struct upipe *upipe, struct upump **upump_p)
+{
+    struct upipe_grid_in *upipe_grid_in = upipe_grid_in_from_upipe(upipe);
+    if (upump_p == NULL || *upump_p == NULL ||
+        upipe_grid_in->nb_urefs < upipe_grid_in->max_urefs ||
+        upump_blocker_find(&upipe_grid_in->blockers, *upump_p))
+        return;
+    struct upump_blocker *blocker =
+        upump_blocker_alloc(*upump_p, upipe_grid_in_block_cb, upipe);
+    ulist_add(&upipe_grid_in->blockers, upump_blocker_to_uchain(blocker));
+}
+
+/** @internal @This unblocks all source pumps.
+ *
+ * @param upipe description of the pipe structure
+ */
+static void upipe_grid_in_unblock(struct upipe *upipe)
+{
+    struct upipe_grid_in *upipe_grid_in = upipe_grid_in_from_upipe(upipe);
+    if (upipe_grid_in->nb_urefs > upipe_grid_in->max_urefs)
+        return;
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&upipe_grid_in->blockers)))
+        upump_blocker_free(upump_blocker_from_uchain(uchain));
 }
 
 /** @internal @This sets the input flow def for real.
@@ -358,7 +410,10 @@ static void upipe_grid_in_update(struct upipe *upipe)
             uref_free(prev_flow);
             prev_flow = current_flow;
         }
-        uref_free(prev);
+        if (prev) {
+            uref_free(prev);
+            upipe_grid_in->nb_urefs--;
+        }
         prev = current;
         prev_pts = current_pts;
         prev_duration = current_duration;
@@ -388,12 +443,16 @@ static void upipe_grid_in_update(struct upipe *upipe)
 
         pts = prev_pts;
     } else if (current) {
-        uref_free(prev);
+        if (prev) {
+            upipe_grid_in->nb_urefs--;
+            uref_free(prev);
+        }
 
         if (current_pts + current_duration < now &&
             current_pts + upipe_grid->max_retention < now &&
             current_duration) {
             upipe_verbose_va(upipe, "drop last uref pts %"PRIu64, current_pts);
+            upipe_grid_in->nb_urefs--;
             uref_free(current);
         } else
             ulist_unshift(&upipe_grid_in->urefs, uref_to_uchain(current));
@@ -451,6 +510,7 @@ static void upipe_grid_in_update(struct upipe *upipe)
         upipe_grid_in->min_buffer = INT64_MAX;
         upipe_grid_in->max_buffer = INT64_MIN;
     }
+    upipe_grid_in_unblock(upipe);
 }
 
 static void upipe_grid_in_update_cb(struct upump *upump)
@@ -514,9 +574,8 @@ static void upipe_grid_in_schedule_update(struct upipe *upipe)
     }
 
     if (pts + duration < now)
-        upipe_grid_in_update(upipe);
-    else
-        upipe_grid_in_wait_upump(upipe, duration, upipe_grid_in_update_cb);
+        duration = 0;
+    upipe_grid_in_wait_upump(upipe, duration, upipe_grid_in_update_cb);
 }
 
 /** @internal @This handles input buffer from input pipe.
@@ -529,8 +588,7 @@ static void upipe_grid_in_input(struct upipe *upipe,
                                 struct uref *uref,
                                 struct upump **upump_p)
 {
-    struct upipe_grid_in *upipe_grid_in =
-        upipe_grid_in_from_upipe(upipe);
+    struct upipe_grid_in *upipe_grid_in = upipe_grid_in_from_upipe(upipe);
 
     /* handle flow format */
     if (unlikely(ubase_check(uref_flow_get_def(uref, NULL)))) {
@@ -575,6 +633,7 @@ static void upipe_grid_in_input(struct upipe *upipe,
     }
 
     uint64_t duration = 0;
+    uref_clock_get_duration(uref, &duration);
 
     if (!ubase_check(uref_flow_match_def(upipe_grid_in->current_flow_def,
                                          UREF_PIC_SUB_FLOW_DEF)) &&
@@ -588,7 +647,9 @@ static void upipe_grid_in_input(struct upipe *upipe,
 
     upipe_grid_in->last_duration = duration;
     upipe_grid_in->last_pts = pts;
+    upipe_grid_in->nb_urefs++;
     ulist_add(&upipe_grid_in->urefs, uref_to_uchain(uref));
+    upipe_grid_in_block(upipe, upump_p);
     upipe_grid_in_schedule_update(upipe);
 }
 
