@@ -149,7 +149,7 @@ gst_video_test_src_zoneplate_8bit (uint8_t *data,
     for (i = 0, x = xreset; i < w; i++, x++) {
 
       /* zero order */
-      int phase = V_POINTER_K0;
+      unsigned int phase = V_POINTER_K0;
 
       /* first order */
       accum_kx += V_POINTER_KX;
@@ -169,7 +169,7 @@ gst_video_test_src_zoneplate_8bit (uint8_t *data,
       /*second order */
       /*normalise x/y terms to rate of change of phase at the picture edge */
       /*phase = phase + ((v->kx2 * x * x)/w) + ((v->ky2 * y * y)/h) + ((v->kt2 * t * t)>>1); */
-      phase = phase + ((KX2 * x * x * scale_kx2) >> 16) + ky2 + (kt2 >> 1);
+      phase = phase + (((unsigned)KX2 * x * x * scale_kx2) >> 16) + ky2 + (kt2 >> 1);
 
       data[j*stride + i] = sine_table[phase & 0xff];
     }

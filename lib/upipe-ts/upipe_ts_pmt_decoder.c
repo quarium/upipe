@@ -635,6 +635,9 @@ static int upipe_ts_pmtd_parse_descs(struct upipe *upipe,
     const uint8_t *desc;
     int j = 0;
 
+    if (!desclength)
+        return uref_ts_flow_add_descriptor(flow_def, NULL, 0);
+
     uint8_t descl_copy[desclength];
     uint16_t copy_len = 0;
 
