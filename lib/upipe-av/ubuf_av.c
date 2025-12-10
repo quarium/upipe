@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 OpenHeadend S.A.R.L.
+ * Copyright (C) 2025 EasyTools
  *
  * Authors: Arnaud de Turckheim
  *
@@ -740,6 +741,9 @@ static int ubuf_sound_av_resize(struct ubuf *ubuf, int offset, int new_size)
         new_size = size - offset;
     else if (offset + new_size > size)
         return UBASE_ERR_INVALID;
+
+    if (av_frame_make_writable(frame))
+        return UBASE_ERR_EXTERNAL;
 
     av_samples_copy(frame->extended_data, frame->extended_data,
                     0, offset, new_size, frame->ch_layout.nb_channels,
