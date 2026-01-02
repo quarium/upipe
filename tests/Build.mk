@@ -213,6 +213,10 @@ tests += upipe_filter_blend_test
 upipe_filter_blend_test-src = upipe_filter_blend_test.c
 upipe_filter_blend_test-libs = libupipe libupipe_modules libupipe_filters
 
+tests += upipe_filter_format_test
+upipe_filter_format_test-src = upipe_filter_format_test.c
+upipe_filter_format_test-libs = libupipe libupipe_modules libupipe_filters libupipe_swscale libupipe_swresample libswscale libavutil libupipe_av
+
 tests += upipe_genaux_test
 upipe_genaux_test-src = upipe_genaux_test.c
 upipe_genaux_test-libs = libupipe libupipe_modules

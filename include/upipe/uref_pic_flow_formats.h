@@ -56,6 +56,21 @@ struct uref_pic_flow_format {
          plane < flow_format->planes + flow_format->nb_planes;  \
          plane++)
 
+/** @This compares two flow format.
+ *
+ * @param format1 first picture flow format to compare
+ * @param format2 second picture flow format to compare
+ * @return 0 if the flow format are identical, 1 otherwise
+ */
+static inline int
+uref_pic_flow_format_cmp(const struct uref_pic_flow_format *format1,
+                         const struct uref_pic_flow_format *format2)
+{
+    if (!format1 || !format2)
+        return !format1 && !format2 ? 0 : 1;
+    return strcmp(format1->name, format2->name);
+}
+
 /** @This returns the corresponding plane of a flow format.
  *
  * @param flow_format picture flow format to look into
@@ -130,6 +145,7 @@ uref_pic_flow_set_format(struct uref *uref,
                          const struct uref_pic_flow_format *format)
 {
     uref_pic_flow_clear_format(uref);
+    UBASE_RETURN(uref_flow_set_def(uref, UREF_PIC_FLOW_DEF));
     UBASE_RETURN(uref_pic_flow_set_macropixel(uref, format->macropixel));
     UBASE_RETURN(uref_pic_flow_set_planes(uref, 0));
     for (size_t i = 0; i < format->nb_planes; i++) {
@@ -156,21 +172,15 @@ static inline struct uref *
 uref_pic_flow_alloc_format(struct uref_mgr *mgr,
                            const struct uref_pic_flow_format *format)
 {
-    struct uref *uref = uref_pic_flow_alloc_def(mgr, format->macropixel);
+    struct uref *uref = uref_alloc_control(mgr);
     if (unlikely(!uref))
         return NULL;
 
-    for (size_t i = 0; i < format->nb_planes; i++) {
-        if (unlikely(!ubase_check(uref_pic_flow_add_plane(
-                        uref,
-                        format->planes[i].hsub,
-                        format->planes[i].vsub,
-                        format->planes[i].mpixel_size,
-                        format->planes[i].chroma)))) {
-            uref_free(uref);
-            return NULL;
-        }
+    if (unlikely(!ubase_check(uref_pic_flow_set_format(uref, format)))) {
+        uref_free(uref);
+        return NULL;
     }
+
     return uref;
 }
 
