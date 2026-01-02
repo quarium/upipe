@@ -32,6 +32,10 @@ fec-src = fec.c
 fec-deps = upipe_udpsink
 fec-libs = libupipe libupipe_modules libupipe_ts libupump_ev
 
+noinst-targets += filter
+filter-src = filter.c
+filter-libs = libupipe libupipe_modules libupipe_filters libupipe_av libupipe_swscale libupipe_swresample
+
 noinst-targets += frame
 frame-src = frame.c
 frame-libs = libupipe libupipe_modules libupipe_filters libupipe_framers \
