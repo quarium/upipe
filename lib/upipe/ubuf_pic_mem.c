@@ -31,13 +31,13 @@
 /** default extra macropixels before lines when unspecified */
 #define UBUF_DEFAULT_HPREPEND       8
 /** default extra macropixels after lines when unspecified */
-#define UBUF_DEFAULT_HAPPEND        8
+#define UBUF_DEFAULT_HAPPEND        32
 /** default extra lines before buffer when unspecified */
 #define UBUF_DEFAULT_VPREPEND       2
 /** default extra lines after buffer when unspecified */
-#define UBUF_DEFAULT_VAPPEND        2
+#define UBUF_DEFAULT_VAPPEND        32
 /** default alignment in octets */
-#define UBUF_DEFAULT_ALIGN          0
+#define UBUF_DEFAULT_ALIGN          64
 
 /** @This is a super-set of the @ref ubuf (and @ref ubuf_pic_common)
  * structure with private fields pointing to shared data. */
@@ -571,6 +571,9 @@ struct ubuf_mgr *ubuf_pic_mem_mgr_alloc(uint16_t ubuf_pool_depth,
     pic_mgr->vappend = vappend >= 0 ? vappend : UBUF_DEFAULT_VAPPEND;
     pic_mgr->align = align >= 0 ? align : UBUF_DEFAULT_ALIGN;
     pic_mgr->align_hmoffset = align_hmoffset;
+
+    pic_mgr->align = 64;
+    pic_mgr->vappend = 32;
 
     urefcount_init(ubuf_pic_mem_mgr_to_urefcount(pic_mgr),
                    ubuf_pic_mem_mgr_free);
