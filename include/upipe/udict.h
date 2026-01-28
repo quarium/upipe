@@ -280,6 +280,18 @@ static inline int udict_iterate(struct udict *udict, const char **name_p,
     return udict_control(udict, UDICT_ITERATE, name_p, type_p);
 }
 
+/** @This iterates over udict attributes.
+ *
+ * @param udict pointer to the udict
+ * @param name name of the current attribute
+ * @param type type of the current attribute
+ */
+#define udict_foreach(udict, name, type)                    \
+    for (type = UDICT_TYPE_END, name = NULL;                \
+         ubase_check(udict_iterate(udict, &name, &type)) && \
+         type != UDICT_TYPE_END;)
+
+
 /** @internal @This finds an attribute of the given name and type and returns
  * a pointer to the beginning of its value.
  *
