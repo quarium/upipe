@@ -60,7 +60,7 @@ UREF_ATTR_INT(xflow, num, "x.f.num", flow num)
 #define UBUF_ALIGN          32
 #define UBUF_ALIGN_OFFSET   0
 #define THREAD_NUM          4
-#define FRAMES_LIMIT        100
+#define FRAMES_LIMIT        1
 #define THREAD_FRAMES_LIMIT (FRAMES_LIMIT / 8)
 #define WIDTH 120
 #define HEIGHT 90
@@ -269,6 +269,10 @@ int main(int argc, char **argv)
         }
     }
 
+    /* upump management */
+    struct upump_mgr *upump_mgr =
+        upump_ev_mgr_alloc_default(UPUMP_POOL, UPUMP_BLOCKER_POOL);
+    assert(upump_mgr);
     /* uref and mem management */
     struct umem_mgr *umem_mgr = umem_alloc_mgr_alloc();
     assert(umem_mgr != NULL);
@@ -300,6 +304,8 @@ int main(int argc, char **argv)
     assert(logger != NULL);
     logger = uprobe_ubuf_mem_alloc(logger, umem_mgr, UBUF_POOL_DEPTH,
                                    UBUF_POOL_DEPTH);
+    assert(logger != NULL);
+    logger = uprobe_upump_mgr_alloc(logger, upump_mgr);
     assert(logger != NULL);
 
     uprobe_init(&uprobe_avcenc_s, catch_avcenc, uprobe_use(logger));
@@ -349,6 +355,7 @@ int main(int argc, char **argv)
 
     upipe_release(avcenc);
     printf("Everything good so far, cleaning\n");
+    upump_mgr_run(upump_mgr, NULL);
 
     /* mono-threaded audio test without upump_mgr */
     flow = uref_sound_flow_alloc_def(uref_mgr, "s16le.", 2, 4);
@@ -372,6 +379,7 @@ int main(int argc, char **argv)
 
     upipe_release(avcenc);
     printf("Everything good so far, cleaning\n");
+    upump_mgr_run(upump_mgr, NULL);
 
     /* clean managers and probes */
     upipe_mgr_release(upipe_avcdec_mgr);
@@ -386,6 +394,7 @@ int main(int argc, char **argv)
     uprobe_release(logger);
     uprobe_clean(&uprobe_avcenc_s);
     uprobe_clean(&uprobe);
+    upump_mgr_release(upump_mgr);
 
     return 0;
 }
