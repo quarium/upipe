@@ -28,6 +28,7 @@
 #include "upipe/upipe.h"
 #include "upipe/upipe_helper_upipe.h"
 #include "upipe/upipe_helper_urefcount.h"
+#include "upipe/upipe_helper_urefcount_real.h"
 #include "upipe/upipe_helper_flow.h"
 #include "upipe/upipe_helper_ubuf_mgr.h"
 #include "upipe/upipe_helper_output.h"
@@ -35,6 +36,8 @@
 #include "upipe/upipe_helper_flow_def.h"
 #include "upipe/upipe_helper_flow_def_check.h"
 #include "upipe/upipe_helper_input.h"
+#include "upipe/upipe_helper_upump_mgr.h"
+#include "upipe/upipe_helper_upump.h"
 #include "upipe-av/upipe_avcodec_encode.h"
 #include "upipe-av/ubuf_av.h"
 #include "upipe-framers/uref_h264.h"
@@ -50,6 +53,7 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
+#include <time.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/avutil.h>
@@ -101,6 +105,8 @@ static int upipe_avcenc_set_option(struct upipe *upipe,
 struct upipe_avcenc {
     /** refcount management structure */
     struct urefcount urefcount;
+    /** internal refcount management structure */
+    struct urefcount urefcount_real;
 
     /** input flow */
     struct uref *flow_def_input;
@@ -177,15 +183,23 @@ struct upipe_avcenc {
     AVFrame *frame;
     /** avcodec packet */
     AVPacket *avpkt;
-    /** true if the pipe need to be released after output_input */
-    bool release_needed;
+
+    /** upump manager */
+    struct upump_mgr *upump_mgr;
+    /** idler for output */
+    struct upump *idler;
+    /** need idler to output frames? */
+    bool need_output;
+    /** need reinit? */
+    bool need_reinit;
 
     /** public upipe structure */
     struct upipe upipe;
 };
 
 UPIPE_HELPER_UPIPE(upipe_avcenc, upipe, UPIPE_AVCENC_SIGNATURE);
-UPIPE_HELPER_UREFCOUNT(upipe_avcenc, urefcount, upipe_avcenc_free)
+UPIPE_HELPER_UREFCOUNT(upipe_avcenc, urefcount, upipe_avcenc_no_ref)
+UPIPE_HELPER_UREFCOUNT_REAL(upipe_avcenc, urefcount_real, upipe_avcenc_free)
 UPIPE_HELPER_FLOW(upipe_avcenc, "block.")
 UPIPE_HELPER_OUTPUT(upipe_avcenc, output, flow_def, output_state, request_list)
 UPIPE_HELPER_INPUT(upipe_avcenc, urefs, nb_urefs, max_urefs, blockers, upipe_avcenc_handle)
@@ -199,6 +213,38 @@ UPIPE_HELPER_UBUF_MGR(upipe_avcenc, ubuf_mgr, flow_format, ubuf_mgr_request,
                       upipe_avcenc_check_ubuf_mgr,
                       upipe_avcenc_register_output_request,
                       upipe_avcenc_unregister_output_request)
+UPIPE_HELPER_UPUMP_MGR(upipe_avcenc, upump_mgr)
+UPIPE_HELPER_UPUMP(upipe_avcenc, idler, upump_mgr)
+
+/** @internal @This is closes the avcodec context.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_avcenc_close(struct upipe *upipe)
+{
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+
+    AVCodecContext *context = upipe_avcenc->context;
+    if (context && avcodec_is_open(context)) {
+        upipe_notice_va(upipe, "codec %s (%s) %d closed", context->codec->name,
+                        context->codec->long_name, context->codec->id);
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 40, 100)
+        avcodec_close(context);
+#endif
+    }
+
+    avcodec_free_context(&upipe_avcenc->context);
+
+    /* free remaining urefs (should not be any) */
+    struct uchain *uchain;
+    while ((uchain = ulist_pop(&upipe_avcenc->urefs_in_use)) != NULL) {
+        struct uref *uref = uref_from_uchain(uchain);
+        int64_t priv;
+        if (ubase_check(uref_avcenc_get_priv(uref, &priv)))
+            upipe_warn_va(upipe, "remaining uref %"PRId64" freed", priv);
+        uref_free(uref);
+    }
+}
 
 /** @internal @This closes and reinitializes the avcodec context.
  *
@@ -224,13 +270,13 @@ static int upipe_avcenc_reinit(struct upipe *upipe)
     enum AVColorTransferCharacteristic color_trc = context->color_trc;
     enum AVColorSpace colorspace = context->colorspace;
 
-    avcodec_free_context(&context);
     context = avcodec_alloc_context3(codec);
     if (context == NULL) {
         upipe_err(upipe, "cannot allocate codec context");
         upipe_throw_error(upipe, UBASE_ERR_ALLOC);
         return UBASE_ERR_ALLOC;
     }
+    upipe_avcenc_close(upipe);
 
     context->opaque = upipe;
     context->flags = flags;
@@ -265,6 +311,8 @@ static int upipe_avcenc_reinit(struct upipe *upipe)
     }
 
     upipe_avcenc->context = context;
+    upipe_avcenc->need_reinit = false;
+    upipe_dbg(upipe, "reinit");
     return UBASE_ERR_NONE;
 }
 
@@ -295,21 +343,18 @@ static int upipe_avcenc_open(struct upipe *upipe)
     return UBASE_ERR_NONE;
 }
 
-/** @internal @This is called to trigger avcodec_close().
- *
- * We close the context even if it was not opened because it supposedly
- * "frees allocated structures".
+/** @internal @This flushes the encoder if needed.
  *
  * @param upipe description structure of the pipe
  */
-static void upipe_avcenc_close(struct upipe *upipe)
+static void upipe_avcenc_flush(struct upipe *upipe)
 {
     struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
     AVCodecContext *context = upipe_avcenc->context;
-    if ((context == NULL) || !avcodec_is_open(context))
-        return;
 
-    if (avcodec_is_open(context)) {
+    upipe_dbg(upipe, "flush");
+
+    if (context && avcodec_is_open(context)) {
         if (!ulist_empty(&upipe_avcenc->sound_urefs))
             /* Feed avcodec with the last incomplete uref (sound only). */
             upipe_avcenc_encode_audio(upipe, NULL);
@@ -320,11 +365,7 @@ static void upipe_avcenc_close(struct upipe *upipe)
         }
     }
 
-    upipe_notice_va(upipe, "codec %s (%s) %d closed", context->codec->name,
-                    context->codec->long_name, context->codec->id);
-#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(60, 40, 100)
-    avcodec_close(context);
-#endif
+    upipe_avcenc->need_reinit = true;
 }
 
 /** @internal @This builds the flow definition packet.
@@ -550,18 +591,12 @@ static int upipe_avcenc_encode_frame(struct upipe *upipe,
         return UBASE_ERR_EXTERNAL;
     }
 
-    while (1) {
-        err = avcodec_receive_packet(context, upipe_avcenc->avpkt);
-        if (unlikely(err < 0)) {
-            if (err != AVERROR(EAGAIN) &&
-                err != AVERROR_EOF)
-                upipe_err_va(upipe, "avcodec_receive_packet: %s",
-                             av_err2str(err));
-            break;
-        }
-        upipe_avcenc_output_pkt(upipe, upipe_avcenc->avpkt, upump_p);
+    if (!upipe_avcenc->need_output) {
+        upipe_avcenc->need_output = true;
+        upipe_avcenc_use_urefcount_real(upipe);
+        if (upipe_avcenc->idler)
+            upump_start(upipe_avcenc->idler);
     }
-    av_packet_unref(upipe_avcenc->avpkt);
 
     return UBASE_ERR_NONE;
 }
@@ -934,271 +969,76 @@ static void upipe_avcenc_encode_audio(struct upipe *upipe,
     free(buf);
 }
 
-/** @internal @This processes data.
+/** @internal @This creates a flow definition check packet from an input flow
+ * definition packet.
  *
  * @param upipe description structure of the pipe
- * @param uref uref structure
- * @param upump_p reference to upump structure
- * @return true if the packet was handled
- */
-static bool upipe_avcenc_handle(struct upipe *upipe, struct uref *uref,
-                                struct upump **upump_p)
-{
-    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
-    AVCodecContext *context = upipe_avcenc->context;
-    const char *def;
-    if (unlikely(uref != NULL && ubase_check(uref_flow_get_def(uref, &def)))) {
-        upipe_avcenc->input_latency = 0;
-        uref_clock_get_latency(uref, &upipe_avcenc->input_latency);
-        upipe_avcenc_store_flow_def(upipe, NULL);
-        uref_free(upipe_avcenc->flow_def_requested);
-        upipe_avcenc->flow_def_requested = NULL;
-        uref = upipe_avcenc_store_flow_def_input(upipe, uref);
-        if (uref != NULL) {
-            uref_pic_flow_clear_format(uref);
-            upipe_avcenc_require_flow_format(upipe, uref);
-        }
-        return true;
-    }
-
-    if (upipe_avcenc->flow_def_requested == NULL)
-        return false;
-
-    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(context->pix_fmt);
-    if (desc != NULL && (desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
-        AVFrame *frame = av_frame_alloc();
-        if (frame == NULL) {
-            upipe_err(upipe, "cannot allocate avframe");
-            upipe_throw_error(upipe, UBASE_ERR_ALLOC);
-            uref_free(uref);
-            return true;
-        }
-        int err = ubuf_av_get_avframe(uref->ubuf, frame);
-        if (!ubase_check(err)) {
-            upipe_err(upipe, "cannot get avframe from uref");
-            upipe_throw_error(upipe, err);
-            av_frame_free(&frame);
-            uref_free(uref);
-            return true;
-        }
-        if (context->hw_frames_ctx != NULL &&
-            context->hw_frames_ctx->data != frame->hw_frames_ctx->data) {
-            upipe_notice(upipe, "hw frames ctx changed");
-            if (context->codec->capabilities & AV_CODEC_CAP_DELAY)
-                upipe_avcenc_encode_frame(upipe, NULL, upump_p);
-            upipe_avcenc_reinit(upipe);
-            if (avcodec_is_open(upipe_avcenc->context)) {
-                av_frame_free(&frame);
-                return false;
-            }
-            context = upipe_avcenc->context;
-        }
-        if (context->hw_frames_ctx == NULL) {
-            context->hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
-            if (context->hw_frames_ctx == NULL) {
-                upipe_err(upipe, "cannot create avframe ref");
-                upipe_throw_error(upipe, UBASE_ERR_ALLOC);
-                av_frame_free(&frame);
-                uref_free(uref);
-                return true;
-            }
-        }
-        av_frame_free(&frame);
-    }
-
-    if (unlikely(!ubase_check(upipe_avcenc_open(upipe)))) {
-        uref_free(uref);
-        return true;
-    }
-
-    uref_clock_get_rate(uref, &upipe_avcenc->drift_rate);
-    uref_clock_get_pts_prog(uref, &upipe_avcenc->input_pts);
-    uref_clock_get_pts_sys(uref, &upipe_avcenc->input_pts_sys);
-
-    /* map input */
-    switch (context->codec->type) {
-        case AVMEDIA_TYPE_VIDEO:
-            upipe_avcenc_encode_video(upipe, uref, upump_p);
-            break;
-
-        case AVMEDIA_TYPE_AUDIO: {
-            size_t size;
-            if (unlikely(!ubase_check(uref_sound_size(uref, &size, NULL)))) {
-                upipe_warn(upipe, "invalid uref received");
-                uref_free(uref);
-                return true;
-            }
-
-            ulist_add(&upipe_avcenc->sound_urefs, uref_to_uchain(uref));
-            upipe_avcenc->nb_samples += size;
-
-            while (upipe_avcenc->nb_samples >= context->frame_size)
-                upipe_avcenc_encode_audio(upipe, upump_p);
-            break;
-        }
-
-        case AVMEDIA_TYPE_SUBTITLE:
-            upipe_avcenc_encode_subtitle(upipe, uref, upump_p);
-            break;
-
-        default:
-            uref_free(uref);
-            break;
-    }
-    return true;
-}
-
-/** @internal @This inputs data.
- *
- * @param upipe description structure of the pipe
- * @param uref uref structure
- * @param upump_p reference to pump that generated the buffer
- */
-static void upipe_avcenc_input(struct upipe *upipe, struct uref *uref,
-                               struct upump **upump_p)
-{
-    if (!upipe_avcenc_check_input(upipe)) {
-        upipe_avcenc_hold_input(upipe, uref);
-        upipe_avcenc_block_input(upipe, upump_p);
-    } else if (!upipe_avcenc_handle(upipe, uref, upump_p)) {
-        upipe_avcenc_hold_input(upipe, uref);
-        upipe_avcenc_block_input(upipe, upump_p);
-        /* Increment upipe refcount to avoid disappearing before all packets
-         * have been sent. */
-        struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
-        upipe_avcenc->release_needed = true;
-        upipe_use(upipe);
-    }
-}
-
-/** @internal @This builds the flow definition attributes packet.
- *
- * @param upipe description structure of the pipe
- */
-static void upipe_avcenc_build_flow_def_attr(struct upipe *upipe)
-{
-    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
-    AVCodecContext *context = upipe_avcenc->context;
-    const AVCodec *codec = context->codec;
-    struct uref *flow_def_attr = uref_dup(upipe_avcenc->flow_def_attr);
-    if (unlikely(flow_def_attr == NULL)) {
-        upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
-        return;
-    }
-
-    UBASE_FATAL(upipe, uref_flow_set_def_va(
-            flow_def_attr, PREFIX_FLOW "%s.%s",
-            upipe_av_to_flow_def_codec(codec->id),
-            upipe_av_to_flow_def_type(codec->id)))
-    UBASE_FATAL(upipe, uref_flow_set_complete(flow_def_attr))
-
-    /* Find out if flow def attributes have changed. */
-    if (!upipe_avcenc_check_flow_def_attr(upipe, flow_def_attr)) {
-        upipe_avcenc_store_flow_def(upipe, NULL);
-        uref_free(upipe_avcenc->flow_def_requested);
-        upipe_avcenc->flow_def_requested = NULL;
-        struct uref *flow_def =
-            upipe_avcenc_store_flow_def_attr(upipe, flow_def_attr);
-        if (flow_def != NULL) {
-            uref_pic_flow_clear_format(flow_def);
-            upipe_avcenc_require_flow_format(upipe, flow_def);
-        }
-    } else
-        uref_free(flow_def_attr);
-}
-
-/** @internal @This receives the result of a flow format request.
- *
- * @param upipe description structure of the pipe
- * @param flow_format amended flow format
+ * @param flow_def flow definition packet
+ * @param def flow definition value
  * @return an error code
  */
-static int upipe_avcenc_check_flow_format(struct upipe *upipe,
-                                          struct uref *flow_format)
+static struct uref *upipe_avcenc_import_flow_def_check(struct upipe *upipe,
+                                                       struct uref *flow_def,
+                                                       const char *def)
 {
-    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
-    if (flow_format == NULL)
-        return UBASE_ERR_INVALID;
+    if (unlikely(!def || !flow_def))
+        return NULL;
 
-    if (ubase_check(uref_flow_get_global(flow_format)))
-        upipe_avcenc->context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-    else
-        upipe_avcenc->context->flags &= ~AV_CODEC_FLAG_GLOBAL_HEADER;
+    struct uref *flow_def_check =
+        upipe_avcenc_alloc_flow_def_check(upipe, flow_def);
+    if (unlikely(flow_def_check == NULL))
+        return NULL;
 
-    if (!strcmp(upipe_avcenc->context->codec->name, "libfdk_aac")) {
-        enum uref_mpga_encaps encaps = uref_mpga_flow_infer_encaps(flow_format);
-        switch (encaps) {
-            default:
-            case UREF_MPGA_ENCAPS_ADTS:
-                upipe_avcenc_set_option(upipe, "latm", "0");
-                break;
-            case UREF_MPGA_ENCAPS_LOAS:
-                upipe_avcenc_set_option(upipe, "latm", "1");
-                break;
-            case UREF_MPGA_ENCAPS_RAW:
-                upipe_avcenc->context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-                upipe_avcenc_set_option(upipe, "latm", "0");
-                break;
-        }
-        uint8_t signaling;
-        if (ubase_check(uref_mpga_flow_get_signaling(flow_format, &signaling)))
-            switch (signaling) {
-                default:
-                case UREF_MPGA_SIGNALING_AUTO:
-                    upipe_avcenc_set_option(upipe, "signaling",
-                                            "default");
-                    break;
-                case UREF_MPGA_SIGNALING_IMPLICIT:
-                    upipe_avcenc_set_option(upipe, "signaling",
-                                            "implicit");
-                    break;
-                case UREF_MPGA_SIGNALING_EXPLICIT_COMPATIBLE:
-                    upipe_avcenc_set_option(upipe, "signaling",
-                                            "explicit_sbr");
-                    break;
-                case UREF_MPGA_SIGNALING_EXPLICIT_HIERARCHICAL:
-                    upipe_avcenc_set_option(upipe, "signaling",
-                                            "explicit_hierarchical");
-                    break;
+    int ret = uref_flow_set_def(flow_def_check, def);
+    if (unlikely(!ubase_check(ret))) {
+        uref_free(flow_def_check);
+        return NULL;
+    }
+
+    if (!ubase_ncmp(def, UREF_PIC_FLOW_DEF)) {
+        int (*attributes[])(struct uref *, struct uref *) = {
+            uref_pic_flow_copy_format,
+            uref_pic_flow_copy_hsize,
+            uref_pic_flow_copy_vsize,
+            uref_pic_flow_copy_fps,
+            uref_pic_flow_copy_full_range,
+            uref_pic_flow_copy_colour_primaries,
+            uref_pic_flow_copy_transfer_characteristics,
+            uref_pic_flow_copy_matrix_coefficients,
+            uref_pic_flow_copy_mdcv,
+            uref_pic_flow_copy_max_cll,
+            uref_pic_flow_copy_max_fall,
+        };
+
+        for (int i = 0; i < UBASE_ARRAY_SIZE(attributes); i++) {
+            ret = attributes[i](flow_def_check, flow_def);
+            if (unlikely(!ubase_check(ret))) {
+                uref_free(flow_def_check);
+                return NULL;
             }
-    }
-
-    uref_free(upipe_avcenc->flow_def_requested);
-    upipe_avcenc->flow_def_requested = NULL;
-    upipe_avcenc_require_ubuf_mgr(upipe, flow_format);
-    return UBASE_ERR_NONE;
-}
-
-/** @internal @This receives a provided ubuf manager.
- *
- * @param upipe description structure of the pipe
- * @param flow_format amended flow format
- * @return an error code
- */
-static int upipe_avcenc_check_ubuf_mgr(struct upipe *upipe,
-                                       struct uref *flow_format)
-{
-    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
-    if (flow_format == NULL)
-        return UBASE_ERR_NONE; /* should not happen */
-
-    uref_free(upipe_avcenc->flow_def_requested);
-    upipe_avcenc->flow_def_requested = flow_format;
-    upipe_avcenc_store_flow_def(upipe, NULL);
-
-    bool was_buffered = !upipe_avcenc_check_input(upipe);
-    upipe_avcenc_output_input(upipe);
-    upipe_avcenc_unblock_input(upipe);
-    if (was_buffered && upipe_avcenc_check_input(upipe)) {
-        /* All packets have been output, release again the pipe that has been
-         * used in @ref upipe_avcenc_input. */
-        if (upipe_avcenc->release_needed) {
-            upipe_release(upipe);
-            upipe_avcenc->release_needed = false;
         }
+    } else if (!ubase_ncmp(def, UREF_SOUND_FLOW_DEF)) {
+        int (*attributes[])(struct uref *, struct uref *) = {
+            uref_sound_flow_copy_format,
+            uref_sound_flow_copy_channels,
+            uref_sound_flow_copy_rate,
+        };
+
+        for (int i = 0; i < UBASE_ARRAY_SIZE(attributes); i++) {
+            ret = attributes[i](flow_def_check, flow_def);
+            if (unlikely(!ubase_check(ret))) {
+                uref_free(flow_def_check);
+                return NULL;
+            }
+        }
+    } else if (!ubase_ncmp(def, UREF_PIC_SUB_FLOW_DEF)) {
+
+    } else {
+        uref_free(flow_def_check);
+        return NULL;
     }
 
-    return UBASE_ERR_NONE;
+    return flow_def_check;
 }
 
 /** @internal @This sets the input flow definition.
@@ -1207,109 +1047,41 @@ static int upipe_avcenc_check_ubuf_mgr(struct upipe *upipe,
  * @param flow_def flow definition packet
  * @return an error code
  */
-static int upipe_avcenc_set_flow_def(struct upipe *upipe, struct uref *flow_def)
+static int upipe_avcenc_set_flow_def_real(struct upipe *upipe,
+                                           struct uref *flow_def)
 {
-    if (flow_def == NULL)
-        return UBASE_ERR_INVALID;
-
-    const char *def;
-    UBASE_RETURN(uref_flow_get_def(flow_def, &def))
-    if (unlikely((ubase_ncmp(def, "pic.") && ubase_ncmp(def, "sound.")))) {
-        upipe_err(upipe, "incompatible flow def");
-        return UBASE_ERR_INVALID;
-    }
-
-    /* Extract relevant attributes to flow def check. */
-    struct uref *flow_def_check =
-        upipe_avcenc_alloc_flow_def_check(upipe, flow_def);
-    if (unlikely(flow_def_check == NULL)) {
-        upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
-        return UBASE_ERR_ALLOC;
-    }
-
-    if (unlikely(!ubase_check(uref_flow_set_def(flow_def_check, def)))) {
-        uref_free(flow_def_check);
-        upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
-        return UBASE_ERR_ALLOC;
-    }
-
-    if (!ubase_ncmp(def, "pic.sub.")) {
-        uint64_t hsize, vsize;
-        if (!ubase_check(uref_pic_flow_get_hsize(flow_def, &hsize)) ||
-            !ubase_check(uref_pic_flow_get_vsize(flow_def, &vsize))) {
-            upipe_err(upipe, "incompatible flow def attributes");
-            uref_free(flow_def_check);
-            return UBASE_ERR_INVALID;
-        }
-
-    } else if (!ubase_ncmp(def, "pic.")) {
-        uint64_t hsize, vsize;
-        struct urational fps;
-        if (!ubase_check(uref_pic_flow_get_hsize(flow_def, &hsize)) ||
-            !ubase_check(uref_pic_flow_get_vsize(flow_def, &vsize)) ||
-            !ubase_check(uref_pic_flow_get_fps(flow_def, &fps))) {
-            upipe_err(upipe, "incompatible flow def attributes");
-            uref_free(flow_def_check);
-            return UBASE_ERR_INVALID;
-        }
-        uref_pic_flow_get_hsize_visible(flow_def, &hsize);
-        uref_pic_flow_get_vsize_visible(flow_def, &vsize);
-
-        if (unlikely(!ubase_check(uref_pic_flow_copy_format(flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_set_hsize(flow_def_check, hsize)) ||
-                     !ubase_check(uref_pic_flow_set_vsize(flow_def_check, vsize)) ||
-                     !ubase_check(uref_pic_flow_set_fps(flow_def_check, fps)) ||
-                     !ubase_check(uref_pic_flow_copy_full_range(
-                             flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_copy_colour_primaries(
-                             flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_copy_transfer_characteristics(
-                             flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_copy_matrix_coefficients(
-                             flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_copy_mdcv(
-                             flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_copy_max_cll(
-                             flow_def_check, flow_def)) ||
-                     !ubase_check(uref_pic_flow_copy_max_fall(
-                             flow_def_check, flow_def)))) {
-            uref_free(flow_def_check);
-            upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
-            return UBASE_ERR_ALLOC;
-        }
-
-    } else if (!ubase_ncmp(def, "sound.")) {
-        uint8_t channels;
-        uint64_t rate;
-        if (!ubase_check(uref_sound_flow_get_channels(flow_def, &channels)) ||
-            !ubase_check(uref_sound_flow_get_rate(flow_def, &rate))) {
-            upipe_err(upipe, "incompatible flow def attributes");
-            uref_free(flow_def_check);
-            return UBASE_ERR_INVALID;
-        }
-
-        if (unlikely(!ubase_check(uref_sound_flow_copy_format(flow_def_check, flow_def)) ||
-                     !ubase_check(uref_sound_flow_set_channels(flow_def_check, channels)) ||
-                     !ubase_check(uref_sound_flow_set_rate(flow_def_check, rate)))) {
-            uref_free(flow_def_check);
-            upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
-            return UBASE_ERR_ALLOC;
-        }
-    }
-
     struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
     AVCodecContext *context = upipe_avcenc->context;
     const AVCodec *codec = context->codec;
 
+    const char *def = NULL;
+    if (unlikely(!ubase_check(uref_flow_get_def(flow_def, &def)) || !def))
+        return UBASE_ERR_INVALID;
+
+    struct uref *flow_def_check =
+        upipe_avcenc_import_flow_def_check(upipe, flow_def, def);
+    if (unlikely(!flow_def))
+        return UBASE_ERR_ALLOC;
+
+    bool need_configuration = true;
     if (upipe_avcenc->flow_def_check != NULL) {
-        /* Die if the attributes changed. */
         /* NB: this supposes that all attributes are in the udict, and that
          * the udict is never empty. */
-        if (!upipe_avcenc_check_flow_def_check(upipe, flow_def_check)) {
+        if (upipe_avcenc_check_flow_def_check(upipe, flow_def_check)) {
+            /* nothing relevant changed */
             uref_free(flow_def_check);
+            need_configuration = false;
+        } else {
+            /* reconfiguration is needed but first flush */
+            uref_free(upipe_avcenc->flow_def_check);
+            upipe_avcenc->flow_def_check = NULL;
+            upipe_avcenc_flush(upipe);
             return UBASE_ERR_BUSY;
         }
-        uref_free(flow_def_check);
+    }
+
+    if (!need_configuration) {
+        /* nothing to do */
 
     } else if (!ubase_ncmp(def, "pic.sub.")) {
         uint64_t hsize = 0, vsize = 0;
@@ -1526,6 +1298,353 @@ static int upipe_avcenc_set_flow_def(struct upipe *upipe, struct uref *flow_def)
         }
 
         upipe_avcenc_store_flow_def_check(upipe, flow_def_check);
+    }
+
+    flow_def = uref_dup(flow_def);
+    if (unlikely(flow_def == NULL)) {
+        upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
+        return UBASE_ERR_ALLOC;
+    }
+
+    upipe_avcenc->input_latency = 0;
+    uref_clock_get_latency(flow_def, &upipe_avcenc->input_latency);
+    upipe_avcenc_store_flow_def(upipe, NULL);
+    uref_free(upipe_avcenc->flow_def_requested);
+    upipe_avcenc->flow_def_requested = NULL;
+    uref_pic_flow_clear_format(flow_def);
+    flow_def = upipe_avcenc_store_flow_def_input(upipe, flow_def);
+    if (flow_def != NULL)
+        upipe_avcenc_require_flow_format(upipe, flow_def);
+
+    return UBASE_ERR_NONE;
+
+}
+
+/** @internal @This processes data.
+ *
+ * @param upipe description structure of the pipe
+ * @param uref uref structure
+ * @param upump_p reference to upump structure
+ * @return true if the packet was handled
+ */
+static bool upipe_avcenc_handle(struct upipe *upipe, struct uref *uref,
+                                struct upump **upump_p)
+{
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+    AVCodecContext *context = upipe_avcenc->context;
+
+    if (upipe_avcenc->need_output)
+        return false;
+
+    if (upipe_avcenc->need_reinit)
+        upipe_avcenc_reinit(upipe);
+
+    const char *def;
+    if (unlikely(ubase_check(uref_flow_get_def(uref, &def)))) {
+        int ret = upipe_avcenc_set_flow_def_real(upipe, uref);
+        if (ret == UBASE_ERR_BUSY) {
+            /* wait for flush */
+            return false;
+        }
+        uref_free(uref);
+        if (unlikely(!ubase_check(ret))) {
+            upipe_avcenc_store_flow_def_input(upipe, NULL);
+            upipe_warn(upipe, "fail to configure");
+        }
+        return true;
+    }
+
+    if (unlikely(!upipe_avcenc->flow_def_input)) {
+        upipe_warn(upipe, "no input flow definition set");
+        uref_free(uref);
+        return true;
+    }
+
+    if (upipe_avcenc->flow_def_requested == NULL)
+        return false;
+
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(context->pix_fmt);
+    if (desc != NULL && (desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+        AVFrame *frame = av_frame_alloc();
+        if (frame == NULL) {
+            upipe_err(upipe, "cannot allocate avframe");
+            upipe_throw_error(upipe, UBASE_ERR_ALLOC);
+            uref_free(uref);
+            return true;
+        }
+        int err = ubuf_av_get_avframe(uref->ubuf, frame);
+        if (!ubase_check(err)) {
+            upipe_err(upipe, "cannot get avframe from uref");
+            upipe_throw_error(upipe, err);
+            av_frame_free(&frame);
+            uref_free(uref);
+            return true;
+        }
+        if (context->hw_frames_ctx != NULL &&
+            context->hw_frames_ctx->data != frame->hw_frames_ctx->data) {
+            upipe_notice(upipe, "hw frames ctx changed");
+            upipe_avcenc_flush(upipe);
+            av_frame_free(&frame);
+            return false;
+        }
+        if (context->hw_frames_ctx == NULL) {
+            context->hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
+            if (context->hw_frames_ctx == NULL) {
+                upipe_err(upipe, "cannot create avframe ref");
+                upipe_throw_error(upipe, UBASE_ERR_ALLOC);
+                av_frame_free(&frame);
+                uref_free(uref);
+                return true;
+            }
+        }
+        av_frame_free(&frame);
+    }
+
+    if (unlikely(!ubase_check(upipe_avcenc_open(upipe)))) {
+        uref_free(uref);
+        return true;
+    }
+
+    uref_clock_get_rate(uref, &upipe_avcenc->drift_rate);
+    uref_clock_get_pts_prog(uref, &upipe_avcenc->input_pts);
+    uref_clock_get_pts_sys(uref, &upipe_avcenc->input_pts_sys);
+
+    /* map input */
+    switch (context->codec->type) {
+        case AVMEDIA_TYPE_VIDEO:
+            upipe_avcenc_encode_video(upipe, uref, upump_p);
+            break;
+
+        case AVMEDIA_TYPE_AUDIO: {
+            size_t size;
+            if (unlikely(!ubase_check(uref_sound_size(uref, &size, NULL)))) {
+                upipe_warn(upipe, "invalid uref received");
+                uref_free(uref);
+                return true;
+            }
+
+            ulist_add(&upipe_avcenc->sound_urefs, uref_to_uchain(uref));
+            upipe_avcenc->nb_samples += size;
+
+            while (upipe_avcenc->nb_samples >= context->frame_size)
+                upipe_avcenc_encode_audio(upipe, upump_p);
+            break;
+        }
+
+        case AVMEDIA_TYPE_SUBTITLE:
+            upipe_avcenc_encode_subtitle(upipe, uref, upump_p);
+            break;
+
+        default:
+            uref_free(uref);
+            break;
+    }
+    return true;
+}
+
+/** @internal @This inputs data.
+ *
+ * @param upipe description structure of the pipe
+ * @param uref uref structure
+ * @param upump_p reference to pump that generated the buffer
+ */
+static void upipe_avcenc_input(struct upipe *upipe, struct uref *uref,
+                               struct upump **upump_p)
+{
+    if (!upipe_avcenc_check_input(upipe)) {
+        upipe_avcenc_hold_input(upipe, uref);
+        upipe_avcenc_block_input(upipe, upump_p);
+    } else if (!upipe_avcenc_handle(upipe, uref, upump_p)) {
+        upipe_avcenc_hold_input(upipe, uref);
+        upipe_avcenc_block_input(upipe, upump_p);
+        /* Increment upipe refcount to avoid disappearing before all packets
+         * have been sent. */
+        upipe_use(upipe);
+    }
+}
+
+/** @internal @This builds the flow definition attributes packet.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_avcenc_build_flow_def_attr(struct upipe *upipe)
+{
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+    AVCodecContext *context = upipe_avcenc->context;
+    const AVCodec *codec = context->codec;
+    struct uref *flow_def_attr = uref_dup(upipe_avcenc->flow_def_attr);
+    if (unlikely(flow_def_attr == NULL)) {
+        upipe_throw_fatal(upipe, UBASE_ERR_ALLOC);
+        return;
+    }
+
+    UBASE_FATAL(upipe, uref_flow_set_def_va(
+            flow_def_attr, PREFIX_FLOW "%s.%s",
+            upipe_av_to_flow_def_codec(codec->id),
+            upipe_av_to_flow_def_type(codec->id)))
+    UBASE_FATAL(upipe, uref_flow_set_complete(flow_def_attr))
+
+    /* Find out if flow def attributes have changed. */
+    if (!upipe_avcenc_check_flow_def_attr(upipe, flow_def_attr)) {
+        upipe_avcenc_store_flow_def(upipe, NULL);
+        uref_free(upipe_avcenc->flow_def_requested);
+        upipe_avcenc->flow_def_requested = NULL;
+        uref_pic_flow_clear_format(flow_def_attr);
+        struct uref *flow_def =
+            upipe_avcenc_store_flow_def_attr(upipe, flow_def_attr);
+        if (flow_def != NULL) {
+            uref_dump_warn(flow_def, upipe->uprobe);
+            uref_dump_warn(flow_def_attr, upipe->uprobe);
+            uref_dump_warn(upipe_avcenc->flow_def_input, upipe->uprobe);
+            upipe_avcenc_require_flow_format(upipe, flow_def);
+        }
+    } else
+        uref_free(flow_def_attr);
+}
+
+/** @internal @This receives the result of a flow format request.
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_format amended flow format
+ * @return an error code
+ */
+static int upipe_avcenc_check_flow_format(struct upipe *upipe,
+                                          struct uref *flow_format)
+{
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+    if (flow_format == NULL)
+        return UBASE_ERR_INVALID;
+
+    if (ubase_check(uref_flow_get_global(flow_format)))
+        upipe_avcenc->context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    else
+        upipe_avcenc->context->flags &= ~AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    if (!strcmp(upipe_avcenc->context->codec->name, "libfdk_aac")) {
+        enum uref_mpga_encaps encaps = uref_mpga_flow_infer_encaps(flow_format);
+        switch (encaps) {
+            default:
+            case UREF_MPGA_ENCAPS_ADTS:
+                upipe_avcenc_set_option(upipe, "latm", "0");
+                break;
+            case UREF_MPGA_ENCAPS_LOAS:
+                upipe_avcenc_set_option(upipe, "latm", "1");
+                break;
+            case UREF_MPGA_ENCAPS_RAW:
+                upipe_avcenc->context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+                upipe_avcenc_set_option(upipe, "latm", "0");
+                break;
+        }
+        uint8_t signaling;
+        if (ubase_check(uref_mpga_flow_get_signaling(flow_format, &signaling)))
+            switch (signaling) {
+                default:
+                case UREF_MPGA_SIGNALING_AUTO:
+                    upipe_avcenc_set_option(upipe, "signaling",
+                                            "default");
+                    break;
+                case UREF_MPGA_SIGNALING_IMPLICIT:
+                    upipe_avcenc_set_option(upipe, "signaling",
+                                            "implicit");
+                    break;
+                case UREF_MPGA_SIGNALING_EXPLICIT_COMPATIBLE:
+                    upipe_avcenc_set_option(upipe, "signaling",
+                                            "explicit_sbr");
+                    break;
+                case UREF_MPGA_SIGNALING_EXPLICIT_HIERARCHICAL:
+                    upipe_avcenc_set_option(upipe, "signaling",
+                                            "explicit_hierarchical");
+                    break;
+            }
+    }
+
+    uref_free(upipe_avcenc->flow_def_requested);
+    upipe_avcenc->flow_def_requested = NULL;
+    upipe_avcenc_require_ubuf_mgr(upipe, flow_format);
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This tries to encode buffered frames.
+ *
+ */
+static void upipe_avcenc_wake(struct upipe *upipe)
+{
+    bool was_buffered = !upipe_avcenc_check_input(upipe);
+    upipe_avcenc_output_input(upipe);
+    upipe_avcenc_unblock_input(upipe);
+    if (was_buffered && upipe_avcenc_check_input(upipe)) {
+        /* All packets have been output, release again the pipe that has been
+         * used in @ref upipe_avcenc_input. */
+        upipe_release(upipe);
+    }
+}
+
+/** @internal @This receives a provided ubuf manager.
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_format amended flow format
+ * @return an error code
+ */
+static int upipe_avcenc_check_ubuf_mgr(struct upipe *upipe,
+                                       struct uref *flow_format)
+{
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+    if (flow_format == NULL)
+        return UBASE_ERR_NONE; /* should not happen */
+
+    uref_free(upipe_avcenc->flow_def_requested);
+    upipe_avcenc->flow_def_requested = flow_format;
+    upipe_avcenc_store_flow_def(upipe, NULL);
+
+    upipe_avcenc_wake(upipe);
+
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This sets the input flow definition.
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_def flow definition packet
+ * @return an error code
+ */
+static int upipe_avcenc_set_flow_def(struct upipe *upipe, struct uref *flow_def)
+{
+    if (flow_def == NULL)
+        return UBASE_ERR_INVALID;
+
+    const char *def;
+    UBASE_RETURN(uref_flow_get_def(flow_def, &def))
+    if (unlikely((ubase_ncmp(def, "pic.") && ubase_ncmp(def, "sound.")))) {
+        upipe_err(upipe, "incompatible flow def");
+        return UBASE_ERR_INVALID;
+    }
+
+    if (!ubase_ncmp(def, "pic.sub.")) {
+        uint64_t hsize, vsize;
+        if (!ubase_check(uref_pic_flow_get_hsize(flow_def, &hsize)) ||
+            !ubase_check(uref_pic_flow_get_vsize(flow_def, &vsize))) {
+            upipe_err(upipe, "incompatible flow def attributes");
+            return UBASE_ERR_INVALID;
+        }
+
+    } else if (!ubase_ncmp(def, "pic.")) {
+        uint64_t hsize, vsize;
+        struct urational fps;
+        if (!ubase_check(uref_pic_flow_get_hsize(flow_def, &hsize)) ||
+            !ubase_check(uref_pic_flow_get_vsize(flow_def, &vsize)) ||
+            !ubase_check(uref_pic_flow_get_fps(flow_def, &fps))) {
+            upipe_err(upipe, "incompatible flow def attributes");
+            return UBASE_ERR_INVALID;
+        }
+
+    } else if (!ubase_ncmp(def, "sound.")) {
+        uint8_t channels;
+        uint64_t rate;
+        if (!ubase_check(uref_sound_flow_get_channels(flow_def, &channels)) ||
+            !ubase_check(uref_sound_flow_get_rate(flow_def, &rate))) {
+            upipe_err(upipe, "incompatible flow def attributes");
+            return UBASE_ERR_INVALID;
+        }
     }
 
     flow_def = uref_dup(flow_def);
@@ -1783,10 +1902,14 @@ static int _upipe_avcenc_set_slice_type_enforce(struct upipe *upipe,
  * @param args arguments of the command
  * @return false in case of error
  */
-static int upipe_avcenc_control(struct upipe *upipe,
-                                           int command, va_list args)
+static int upipe_avcenc_control_real(struct upipe *upipe, int command,
+                                     va_list args)
 {
     switch (command) {
+        case UPIPE_ATTACH_UPUMP_MGR:
+            upipe_avcenc_set_idler(upipe, NULL);
+            return upipe_avcenc_attach_upump_mgr(upipe);
+
         case UPIPE_REGISTER_REQUEST: {
             struct urequest *request = va_arg(args, struct urequest *);
             if (request->type == UREQUEST_UBUF_MGR)
@@ -1828,6 +1951,85 @@ static int upipe_avcenc_control(struct upipe *upipe,
     }
 }
 
+/** @internal @This is called when idle to output packet if any. */
+static void upipe_avcenc_idle(struct upump *idler)
+{
+    struct upipe *upipe = upump_get_opaque(idler, struct upipe *);
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+    AVCodecContext *context = upipe_avcenc->context;
+
+    int err = avcodec_receive_packet(context, upipe_avcenc->avpkt);
+    if (unlikely(err < 0)) {
+        if (err != AVERROR(EAGAIN) && err != AVERROR_EOF)
+            upipe_err_va(upipe, "avcodec_receive_packet: %s", av_err2str(err));
+        av_packet_unref(upipe_avcenc->avpkt);
+        upipe_avcenc->need_output = false;
+        upump_stop(idler);
+        upipe_avcenc_wake(upipe);
+        upipe_avcenc_release_urefcount_real(upipe);
+        return;
+    }
+
+    upipe_avcenc_output_pkt(upipe, upipe_avcenc->avpkt, &upipe_avcenc->idler);
+    av_packet_unref(upipe_avcenc->avpkt);
+}
+
+/** @internal @This checks the internal state of the pipeline.
+ *
+ * @param upipe description structure of the pipe
+ * @return an error code
+ */
+static int upipe_avcenc_check(struct upipe *upipe)
+{
+    struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
+
+    int ret = upipe_avcenc_check_upump_mgr(upipe);
+    if (unlikely(!ubase_check(ret)))
+        return ret;
+
+    if (unlikely(!upipe_avcenc->upump_mgr))
+        return UBASE_ERR_NONE;
+
+    if (unlikely(!upipe_avcenc->idler)) {
+        struct upump *idler =
+            upump_alloc_idler(upipe_avcenc->upump_mgr, upipe_avcenc_idle, upipe,
+                              &upipe_avcenc->urefcount_real);
+        if (unlikely(!idler))
+            return UBASE_ERR_ALLOC;
+
+        upipe_avcenc_set_idler(upipe, idler);
+
+        if (upipe_avcenc->need_output)
+            upump_start(upipe_avcenc->idler);
+    }
+
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This processes control commands on a file source pipe, and
+ * checks the status of the pipe afterwards.
+ *
+ * @param upipe description structure of the pipe
+ * @param command type of command to process
+ * @param args arguments of the command
+ * @return an error code
+ */
+static int upipe_avcenc_control(struct upipe *upipe, int command, va_list args)
+{
+    UBASE_RETURN(upipe_avcenc_control_real(upipe, command, args));
+    return upipe_avcenc_check(upipe);
+}
+
+/** @This is called when there is no external reference to the pipe anymore.
+ *
+ * @param upipe description structure of the pipe
+ */
+static void upipe_avcenc_no_ref(struct upipe *upipe)
+{
+    upipe_avcenc_flush(upipe);
+    upipe_avcenc_release_urefcount_real(upipe);
+}
+
 /** @This frees a upipe.
  *
  * @param upipe description structure of the pipe
@@ -1837,23 +2039,14 @@ static void upipe_avcenc_free(struct upipe *upipe)
     struct upipe_avcenc *upipe_avcenc = upipe_avcenc_from_upipe(upipe);
 
     upipe_avcenc_close(upipe);
-    avcodec_free_context(&upipe_avcenc->context);
     av_frame_free(&upipe_avcenc->frame);
     av_packet_free(&upipe_avcenc->avpkt);
-
-    /* free remaining urefs (should not be any) */
-    struct uchain *uchain;
-    while ((uchain = ulist_pop(&upipe_avcenc->urefs_in_use)) != NULL) {
-        struct uref *uref = uref_from_uchain(uchain);
-        int64_t priv;
-        if (ubase_check(uref_avcenc_get_priv(uref, &priv)))
-            upipe_warn_va(upipe, "remaining uref %"PRId64" freed", priv);
-        uref_free(uref);
-    }
 
     upipe_throw_dead(upipe);
     uref_free(upipe_avcenc->flow_def_requested);
     uref_free(upipe_avcenc->options);
+    upipe_avcenc_clean_idler(upipe);
+    upipe_avcenc_clean_upump_mgr(upipe);
     upipe_avcenc_clean_input(upipe);
     upipe_avcenc_clean_ubuf_mgr(upipe);
     upipe_avcenc_clean_output(upipe);
@@ -1861,6 +2054,7 @@ static void upipe_avcenc_free(struct upipe *upipe)
     upipe_avcenc_clean_flow_def(upipe);
     upipe_avcenc_clean_flow_def_check(upipe);
     upipe_avcenc_clean_urefcount(upipe);
+    upipe_avcenc_clean_urefcount_real(upipe);
     upipe_avcenc_free_flow(upipe);
 }
 
@@ -1926,11 +2120,14 @@ static struct upipe *upipe_avcenc_alloc(struct upipe_mgr *mgr,
         return NULL;
     }
 
+    uref_pic_flow_clear_format(flow_def);
+
     upipe_avcenc->frame = frame;
     upipe_avcenc->avpkt = avpkt;
     upipe_avcenc->context->codec = codec;
     upipe_avcenc->context->opaque = upipe;
 
+    upipe_avcenc_init_urefcount_real(upipe);
     upipe_avcenc_init_urefcount(upipe);
     upipe_avcenc_init_ubuf_mgr(upipe);
     upipe_avcenc_init_output(upipe);
@@ -1938,11 +2135,14 @@ static struct upipe *upipe_avcenc_alloc(struct upipe_mgr *mgr,
     upipe_avcenc_init_flow_format(upipe);
     upipe_avcenc_init_flow_def(upipe);
     upipe_avcenc_init_flow_def_check(upipe);
+    upipe_avcenc_init_upump_mgr(upipe);
+    upipe_avcenc_init_idler(upipe);
     upipe_avcenc_store_flow_def_attr(upipe, flow_def);
     upipe_avcenc->flow_def_requested = NULL;
     upipe_avcenc->slice_type_enforce = false;
     upipe_avcenc->options = options;
-    upipe_avcenc->release_needed = false;
+    upipe_avcenc->need_output = false;
+    upipe_avcenc->need_reinit = false;
 
     ulist_init(&upipe_avcenc->sound_urefs);
     upipe_avcenc->nb_samples = 0;
