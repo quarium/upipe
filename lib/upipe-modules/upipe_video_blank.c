@@ -40,6 +40,8 @@ struct upipe_vblk {
     struct uref *flow_def;
     /** input flow definition */
     struct uref *input_flow_def;
+    /** provided flow format */
+    struct uref *flow_def_provided;
     /** flow attributes */
     struct uref *flow_attr;
     /** output state */
@@ -114,6 +116,8 @@ static void upipe_vblk_free(struct upipe *upipe)
     if (upipe_vblk->pic_attr)
         uref_free(upipe_vblk->pic_attr);
 
+    uref_free(upipe_vblk->flow_def_provided);
+
     upipe_vblk_clean_input(upipe);
     upipe_vblk_clean_ubuf_mgr(upipe);
     upipe_vblk_clean_flow_format(upipe);
@@ -151,6 +155,7 @@ static struct upipe *upipe_vblk_alloc(struct upipe_mgr *mgr,
     upipe_vblk_init_input(upipe);
 
     struct upipe_vblk *upipe_vblk = upipe_vblk_from_upipe(upipe);
+    upipe_vblk->flow_def_provided = NULL;
     upipe_vblk->ubuf = NULL;
     upipe_vblk->pic = NULL;
     upipe_vblk->pic_attr = NULL;
@@ -374,7 +379,19 @@ static int upipe_vblk_check_flow_format(struct upipe *upipe,
     struct upipe_vblk *upipe_vblk = upipe_vblk_from_upipe(upipe);
     uref_attr_import(flow_format, upipe_vblk->flow_attr);
     uref_pic_flow_delete_surface_type(flow_format);
-    upipe_vblk_require_ubuf_mgr(upipe, flow_format);
+    if (upipe_vblk->ubuf_mgr && upipe_vblk->flow_def_provided &&
+        !udict_cmp(upipe_vblk->flow_def_provided->udict, flow_format->udict)) {
+        uref_free(flow_format);
+        return UBASE_ERR_NONE;
+    }
+
+    uref_free(upipe_vblk->flow_def_provided);
+    upipe_vblk->flow_def_provided = flow_format;
+
+    if (!upipe_vblk->ubuf_mgr ||
+        !ubase_check(ubuf_mgr_check(upipe_vblk->ubuf_mgr, flow_format))) {
+        upipe_vblk_require_ubuf_mgr(upipe, uref_dup(flow_format));
+    }
     return UBASE_ERR_NONE;
 }
 
