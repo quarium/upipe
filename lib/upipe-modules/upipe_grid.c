@@ -952,7 +952,7 @@ static int upipe_grid_out_extract_input(struct upipe *upipe, struct uref *uref,
 
     if (!upipe_grid_out->input) {
         if (upipe_grid_out->warn_no_input)
-            upipe_warn(upipe, "no input set");
+            upipe_info(upipe, "no input set");
         upipe_grid_out->warn_no_input = false;
         return UBASE_ERR_INVALID;
     }
