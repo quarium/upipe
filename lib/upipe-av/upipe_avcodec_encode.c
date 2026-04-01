@@ -267,6 +267,7 @@ static int upipe_avcenc_reinit(struct upipe *upipe)
     int width = context->width;
     int height = context->height;
     enum AVPixelFormat pix_fmt = context->pix_fmt;
+    enum AVPixelFormat sw_pix_fmt = context->sw_pix_fmt;
     AVRational time_base = context->time_base;
     AVRational framerate = context->framerate;
     AVRational sample_aspect_ratio = context->sample_aspect_ratio;
@@ -284,11 +285,13 @@ static int upipe_avcenc_reinit(struct upipe *upipe)
     }
     upipe_avcenc_close(upipe);
 
+    context->codec = codec;
     context->opaque = upipe;
     context->flags = flags;
     context->width = width;
     context->height = height;
     context->pix_fmt = pix_fmt;
+    context->sw_pix_fmt = sw_pix_fmt;
     context->time_base = time_base;
     context->framerate = framerate;
     context->sample_aspect_ratio = sample_aspect_ratio;
