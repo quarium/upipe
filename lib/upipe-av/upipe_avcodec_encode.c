@@ -13,7 +13,6 @@
  */
 
 #include "upipe/uclock.h"
-#include "upipe/uclock_std.h"
 #include "upipe/ubuf.h"
 #include "upipe/ubuf_block.h"
 #include "upipe/uref.h"
@@ -193,8 +192,6 @@ struct upipe_avcenc {
     bool need_output;
     /** need reinit? */
     bool need_reinit;
-
-    struct uclock *uclock;
 
     /** public upipe structure */
     struct upipe upipe;
@@ -568,12 +565,6 @@ static void upipe_avcenc_output_pkt(struct upipe *upipe,
 
     if (upipe_avcenc->flow_def == NULL)
         upipe_avcenc_build_flow_def(upipe);
-
-    uint64_t now = uclock_now(upipe_avcenc->uclock);
-    if (dts > now)
-        upipe_notice_va(upipe, "dts is %.2f ms early", (dts - now) * 1000. / UCLOCK_FREQ);
-    else
-        upipe_warn_va(upipe, "dts is %.2f ms late", (now - dts) * 1000. / UCLOCK_FREQ);
 
     upipe_avcenc_output(upipe, uref, upump_p);
 }
@@ -2054,7 +2045,6 @@ static void upipe_avcenc_free(struct upipe *upipe)
     av_frame_free(&upipe_avcenc->frame);
     av_packet_free(&upipe_avcenc->avpkt);
 
-    uclock_release(upipe_avcenc->uclock);
     upipe_throw_dead(upipe);
     uref_free(upipe_avcenc->flow_def_requested);
     uref_free(upipe_avcenc->options);
@@ -2156,7 +2146,6 @@ static struct upipe *upipe_avcenc_alloc(struct upipe_mgr *mgr,
     upipe_avcenc->options = options;
     upipe_avcenc->need_output = false;
     upipe_avcenc->need_reinit = false;
-    upipe_avcenc->uclock = uclock_std_alloc(0);
 
     ulist_init(&upipe_avcenc->sound_urefs);
     upipe_avcenc->nb_samples = 0;
