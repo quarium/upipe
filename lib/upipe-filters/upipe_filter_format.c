@@ -1144,6 +1144,8 @@ upipe_ffmt_build_filtergraph(struct upipe *upipe,
             if (need_scale) {
                 add_option("size=%" PRIu64 "x%" PRIu64, config->out.hsize,
                            config->out.vsize);
+                if (upipe_ffmt->enforce)
+                    add_option("auto_skip=1");
                 need_scale = false;
             }
             if (scale_filterblit)
