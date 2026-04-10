@@ -1392,24 +1392,25 @@ static int upipe_ffmt_build_pic(struct upipe *upipe,
  * @param upipe description structure of the pipe
  * @return an error code
  */
-static int upipe_ffmt_build_sound(struct upipe *upipe, struct uref *flow_def,
-                                struct uref *flow_def_dup)
+static int upipe_ffmt_build_sound(struct upipe *upipe,
+                                  struct uref *flow_def_input,
+                                  struct uref *flow_def_output)
 {
     struct upipe_ffmt_mgr *ffmt_mgr = upipe_ffmt_mgr_from_upipe_mgr(upipe->mgr);
     struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
     struct upipe *first = NULL, *last = NULL;
     int err;
 
-    if (!uref_sound_flow_compare_format(flow_def, flow_def_dup) ||
-        uref_sound_flow_cmp_rate(flow_def, flow_def_dup)) {
+    if (!uref_sound_flow_compare_format(flow_def_input, flow_def_output) ||
+        uref_sound_flow_cmp_rate(flow_def_input, flow_def_output)) {
         struct upipe *input = upipe_flow_alloc(
             ffmt_mgr->swr_mgr,
             uprobe_pfx_alloc(uprobe_use(upipe_ffmt_to_proxy_probe(upipe_ffmt)),
                              UPROBE_LOG_VERBOSE, "swr"),
-            flow_def_dup);
+            flow_def_output);
         if (unlikely(!input)) {
             upipe_warn_va(upipe, "couldn't allocate swresample");
-            udict_dump(flow_def_dup->udict, upipe->uprobe);
+            udict_dump(flow_def_output->udict, upipe->uprobe);
             upipe_release(first);
             upipe_release(last);
             return UBASE_ERR_ALLOC;
@@ -1417,17 +1418,17 @@ static int upipe_ffmt_build_sound(struct upipe *upipe, struct uref *flow_def,
         upipe_ffmt_push_pipe(upipe, &first, &last, input);
     }
 
-    uref_flow_delete_def(flow_def_dup);
-    uref_sound_flow_clear_format(flow_def_dup);
-    uref_sound_flow_delete_rate(flow_def_dup);
-    err = upipe_setflowdef_set_dict(upipe_ffmt->last_inner, flow_def_dup);
+    uref_flow_delete_def(flow_def_output);
+    uref_sound_flow_clear_format(flow_def_output);
+    uref_sound_flow_delete_rate(flow_def_output);
+    err = upipe_setflowdef_set_dict(upipe_ffmt->last_inner, flow_def_output);
     if (unlikely(!ubase_check(err))) {
         upipe_release(first);
         upipe_release(last);
         return err;
     }
 
-    return upipe_ffmt_store_bin(upipe, first, last, flow_def);
+    return upipe_ffmt_store_bin(upipe, first, last, flow_def_input);
 }
 
 static int upipe_ffmt_build(struct upipe *upipe)
