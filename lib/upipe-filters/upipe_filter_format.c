@@ -940,16 +940,16 @@ upipe_ffmt_build_filtergraph(struct upipe *upipe,
     pos += snprintf(buffer_get(buffer, pos, size), size_get(size, pos), "%s" Fmt, \
                     opt++ ? ":" : "=", ##__VA_ARGS__)
 
-    if (need_scale && upipe_ffmt->force_sw_scale && surface_type == SW) {
-        add_filter("scale");
-        add_option("w=%" PRIu64, config->out.hsize);
-        add_option("h=%" PRIu64, config->out.vsize);
-        need_scale = false;
-    }
+    if (surface_type == SW) {
+        bool need_sw_deint =
+            (need_deint && config->out.surface_type == SW) ||
+            (need_deint && config->out.surface_type == AV_NI_QUADRA) ||
+            need_fps;
+        bool need_sw_tonemap = (need_tonemap && config->out.surface_type ==SW);
+        bool need_sw_scale = (need_scale && config->out.surface_type == SW) ||
+                             (need_scale && upipe_ffmt->force_sw_scale);
 
-    // SW framerate conversion if needed
-    if (need_fps && surface_type == SW && config->out.progressive) {
-        if (need_deint) {
+        if (need_sw_deint) {
             add_filter("scale");
             add_option("interl=-1");
             add_filter("format");
@@ -959,60 +959,13 @@ upipe_ffmt_build_filtergraph(struct upipe *upipe,
             need_deint = false;
         }
 
-        add_filter("framerate");
-        add_option("fps=%" PRIi64 "/%" PRIu64, config->out.fps.num,
-                   config->out.fps.den);
-        need_fps = false;
-    }
-
-    // SW -> HW
-    if (surface_type == SW && config->out.surface_type != SW) {
-        if (config->out.surface_type == AV_NI_QUADRA) {
-            if (need_deint) {
-                add_filter("scale");
-                add_option("interl=-1");
-                add_filter("format");
-                add_option("%s", pix_fmt_planar);
-                add_filter("yadif");
-                add_option("deint=interlaced");
-                need_deint = false;
-            }
-        }
-
-        if (config->out.surface_type == AV_QSV ||
-            config->out.surface_type == AV_VAAPI) {
-            add_filter("scale");
-            add_option("interl=-1");
-            add_filter("format");
-            add_option("%s", pix_fmt_semiplanar);
-        }
-
-        add_filter("hwupload");
-        surface_type = config->out.surface_type;
-    }
-
-    if (surface_type == AV_VAAPI && config->out.surface_type == AV_QSV) {
-        add_filter("hwmap");
-        add_option("derive_device=qsv");
-        add_filter("format");
-        add_option("qsv");
-        surface_type = AV_QSV;
-    }
-
-    // deint, scale, convert
-    if (surface_type == SW) {
-        if (need_deint) {
-            add_filter("yadif");
-            add_option("deint=interlaced");
-            need_deint = false;
-        }
-
-        if (need_tonemap) {
+        if (need_sw_tonemap) {
             add_filter("zscale");
-            if (need_scale) {
+            if (need_sw_scale) {
                 add_option("width=%" PRIu64, config->out.hsize);
                 add_option("height=%" PRIu64, config->out.vsize);
                 add_option("filter=%s", upipe_ffmt->zscale_filter ?: "bicubic");
+                need_sw_scale = false;
                 need_scale = false;
             }
             add_option("npl=100");
@@ -1035,22 +988,53 @@ upipe_ffmt_build_filtergraph(struct upipe *upipe,
             need_format = false;
         }
 
-        if (need_scale) {
+        if (need_sw_scale) {
             add_filter("scale");
             add_option("w=%" PRIu64, config->out.hsize);
             add_option("h=%" PRIu64, config->out.vsize);
             need_scale = false;
         }
 
-        if (need_format) {
-            add_filter("scale");
-            add_option("interl=-1");
-            add_filter("format");
-            add_option("%s", out_pix_fmt);
-            need_format = false;
+        // SW framerate conversion if needed
+        if (need_fps) {
+            add_filter("framerate");
+            add_option("fps=%" PRIi64 "/%" PRIu64, config->out.fps.num,
+                       config->out.fps.den);
+            need_fps = false;
         }
 
-    } else if (surface_type == AV_QSV) {
+        if (config->out.surface_type == SW) {
+            if (need_format) {
+                add_filter("scale");
+                add_option("interl=-1");
+                add_filter("format");
+                add_option("%s", out_pix_fmt);
+                need_format = false;
+            }
+
+        } else {
+            // SW -> HW
+            if (config->out.surface_type == AV_QSV ||
+                config->out.surface_type == AV_VAAPI) {
+                add_filter("scale");
+                add_option("interl=-1");
+                add_filter("format");
+                add_option("%s", pix_fmt_semiplanar);
+            }
+
+            add_filter("hwupload");
+            surface_type = config->out.surface_type;
+        }
+    } else if (surface_type == AV_VAAPI && config->out.surface_type == AV_QSV) {
+        add_filter("hwmap");
+        add_option("derive_device=qsv");
+        add_filter("format");
+        add_option("qsv");
+        surface_type = AV_QSV;
+    }
+
+    // HW deint, scale, convert
+    if (surface_type == AV_QSV) {
         const char *deinterlace = upipe_ffmt->vpp_qsv_deinterlace ?: "advanced";
         const char *scale_mode = upipe_ffmt->vpp_qsv_scale_mode ?: "hq";
 
@@ -1168,15 +1152,6 @@ upipe_ffmt_build_filtergraph(struct upipe *upipe,
             add_option("mode=read+direct");
         } else {
             add_filter("hwdownload");
-        }
-
-        add_filter("format");
-        add_option("%s", pix_fmt_semiplanar);
-        if (out_pix_fmt != NULL && strcmp(out_pix_fmt, pix_fmt_semiplanar)) {
-            add_filter("scale");
-            add_option("interl=-1");
-            add_filter("format");
-            add_option("%s", out_pix_fmt);
         }
         surface_type = SW;
     }

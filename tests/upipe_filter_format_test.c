@@ -577,7 +577,7 @@ static int input_set_flow_def(struct upipe *upipe, struct uref *flow_def)
         else if (snd)
             uref = sound_alloc(input->ubuf_mgr, counter);
 
-        if (ubase_check(uref_pic_check_progressive(input->flow_def)))
+        if (uref_pic_check_progressive(input->flow_def))
             uref_pic_set_progressive(uref, true);
         else
             uref_pic_set_progressive(uref, false);
@@ -1001,8 +1001,8 @@ static void test_deint(void)
 {
     void check_flow_def(struct output *output, struct uref *flow_def) {
         uint64_t hsize = 0, vsize = 0;
-        ubase_assert(uref_pic_check_progressive(flow_def));
-        ubase_nassert(uref_pic_check_tff(flow_def));
+        assert(uref_pic_check_progressive(flow_def));
+        assert(!uref_pic_check_tff(flow_def));
         ubase_assert(uref_pic_flow_get_hsize(flow_def, &hsize));
         ubase_assert(uref_pic_flow_get_vsize(flow_def, &vsize));
         assert(hsize == WIDTH / 2);
@@ -1010,8 +1010,8 @@ static void test_deint(void)
     }
 
     void check_uref(struct output *output, struct uref *uref) {
-        ubase_assert(uref_pic_check_progressive(uref));
-        ubase_nassert(uref_pic_check_tff(uref));
+        assert(uref_pic_check_progressive(uref));
+        assert(!uref_pic_check_tff(uref));
     }
 
     TEST_START(test_deint);
@@ -1061,8 +1061,8 @@ static void test_deint_avfilter(void)
         uint64_t hsize = 0, vsize = 0;
         if (!output_hw_type)
             ubase_assert(uref_pic_flow_check_yuv420p(flow_def));
-        ubase_assert(uref_pic_check_progressive(flow_def));
-        ubase_nassert(uref_pic_check_tff(flow_def));
+        assert(uref_pic_check_progressive(flow_def));
+        assert(!uref_pic_check_tff(flow_def));
         ubase_assert(uref_pic_flow_get_hsize(flow_def, &hsize));
         ubase_assert(uref_pic_flow_get_vsize(flow_def, &vsize));
         assert(hsize == WIDTH / 2);
@@ -1070,8 +1070,8 @@ static void test_deint_avfilter(void)
     }
 
     void check_uref(struct output *output, struct uref *uref) {
-        ubase_assert(uref_pic_check_progressive(uref));
-        ubase_nassert(uref_pic_check_tff(uref));
+        assert(uref_pic_check_progressive(uref));
+        assert(!uref_pic_check_tff(uref));
     }
 
     TEST_START(test_deint_avfilter);
@@ -1115,16 +1115,14 @@ static void test_deint_avfilter(void)
 static void test_interlace(void)
 {
     void check_flow_def(struct output *output, struct uref *flow_def) {
-        bool tff = false;
-        ubase_assert(uref_pic_get_tff(flow_def, &tff) && tff == false);
-        ubase_assert(uref_pic_check_tff(flow_def));
-        ubase_nassert(uref_pic_check_progressive(flow_def));
+        assert(uref_pic_check_tff(flow_def));
+        assert(!uref_pic_check_progressive(flow_def));
     }
 
     void check_uref(struct output *output, struct uref *uref) {
         uint64_t hsize = 0, vsize = 0;
         uint8_t macropixel = 0;
-        ubase_nassert(uref_pic_check_progressive(uref));
+        assert(!uref_pic_check_progressive(uref));
         ubase_assert(uref_pic_size(uref, &hsize, &vsize, &macropixel));
         assert(hsize == WIDTH);
         assert(vsize == HEIGHT);
@@ -1164,14 +1162,14 @@ static void test_interlace(void)
 static void test_deint_interlace(void)
 {
     void check_flow_def(struct output *output, struct uref *flow_def) {
-        ubase_assert(uref_pic_check_tff(flow_def));
-        ubase_nassert(uref_pic_check_progressive(flow_def));
+        assert(uref_pic_check_tff(flow_def));
+        assert(!uref_pic_check_progressive(flow_def));
     }
 
     void check_uref(struct output *output, struct uref *uref) {
         uint64_t hsize = 0, vsize = 0;
         uint8_t macropixel = 0;
-        ubase_nassert(uref_pic_check_progressive(uref));
+        assert(!uref_pic_check_progressive(uref));
         ubase_assert(uref_pic_size(uref, &hsize, &vsize, &macropixel));
         assert(hsize == WIDTH);
         assert(vsize == HEIGHT);
@@ -1222,11 +1220,11 @@ static void test_auto(void)
             ubase_assert(uref_pic_flow_check_nv12(flow_def));
 
         if (output->counter < 6) {
-            ubase_assert(uref_pic_check_progressive(flow_def));
-            ubase_nassert(uref_pic_check_tff(flow_def));
+            assert(uref_pic_check_progressive(flow_def));
+            assert(!uref_pic_check_tff(flow_def));
         } else {
-            ubase_nassert(uref_pic_check_progressive(flow_def));
-            ubase_assert(uref_pic_check_tff(flow_def));
+            assert(!uref_pic_check_progressive(flow_def));
+            assert(uref_pic_check_tff(flow_def));
         }
 
         uint64_t hsize = 0, vsize = 0;
@@ -1360,8 +1358,8 @@ static void test_force(void)
     void check_flow_def(struct output *output, struct uref *flow_def) {
         uint64_t hsize = 0, vsize = 0;
         ubase_assert(uref_pic_flow_check_yuv420p(flow_def));
-        ubase_assert(uref_pic_check_progressive(flow_def));
-        ubase_nassert(uref_pic_check_tff(flow_def));
+        assert(uref_pic_check_progressive(flow_def));
+        assert(!uref_pic_check_tff(flow_def));
         ubase_assert(uref_pic_flow_get_hsize(flow_def, &hsize));
         ubase_assert(uref_pic_flow_get_vsize(flow_def, &vsize));
         assert(hsize == WIDTH);

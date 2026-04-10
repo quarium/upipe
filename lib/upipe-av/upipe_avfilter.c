@@ -2080,7 +2080,7 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
             return;
         }
 
-        if (ubase_check(uref_pic_check_progressive(flow_def)))
+        if (uref_pic_check_progressive(flow_def))
             uref_pic_delete_tff(flow_def);
 
         upipe_notice_va(upipe, "latency: %" PRIu64 " ms",
