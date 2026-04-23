@@ -52,6 +52,7 @@ libupipe-includes = \
     upipe_helper_iconv.h \
     upipe_helper_inner.h \
     upipe_helper_input.h \
+    upipe_helper_options.h \
     upipe_helper_output.h \
     upipe_helper_output_size.h \
     upipe_helper_subpipe.h \
