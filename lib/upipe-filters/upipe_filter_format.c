@@ -28,6 +28,7 @@
 #include "upipe/upipe_helper_bin_input.h"
 #include "upipe/upipe_helper_bin_output.h"
 #include "upipe/upipe_helper_input.h"
+#include "upipe/upipe_helper_options.h"
 #include "upipe-modules/upipe_setflowdef.h"
 #include "upipe-filters/upipe_filter_format.h"
 #include "upipe-filters/upipe_filter_blend.h"
@@ -157,6 +158,19 @@ UPIPE_HELPER_FLOW_FORMAT(upipe_ffmt, request,
 
 UBASE_FROM_TO(upipe_ffmt, urefcount, urefcount_real, urefcount_real)
 
+#define UPIPE_FFMT_OPTIONS(Opt)                                               \
+    Opt(upipe_ffmt, deinterlace_vaapi_mode, "deinterlace_vaapi/mode")         \
+    Opt(upipe_ffmt, scale_vaapi_mode, "scale_vaapi/mode")                     \
+    Opt(upipe_ffmt, vpp_qsv_deinterlace, "vpp_qsv/deinterlace")               \
+    Opt(upipe_ffmt, vpp_qsv_scale_mode, "vpp_qsv/scale_mode")                 \
+    Opt(upipe_ffmt, ni_quadra_scale_filterblit, "ni_quadra_scale/filterblit") \
+    Opt(upipe_ffmt, zscale_filter, "zscale/filter")                           \
+    Opt(upipe_ffmt, tonemap_tonemap, "tonemap/tonemap")                       \
+    Opt(upipe_ffmt, tonemap_param, "tonemap/param")                           \
+    Opt(upipe_ffmt, tonemap_desat, "tonemap/desat")
+
+UPIPE_HELPER_OPTIONS(upipe_ffmt, UPIPE_FFMT_OPTIONS);
+
 /** @hidden */
 static void upipe_ffmt_free(struct urefcount *urefcount_real);
 
@@ -212,15 +226,7 @@ static struct upipe *upipe_ffmt_alloc(struct upipe_mgr *mgr,
     upipe_ffmt->flow_def_requested = NULL;
     upipe_ffmt->flow_def_provided = NULL;
     upipe_ffmt->sws_flags = 0;
-    upipe_ffmt->deinterlace_vaapi_mode = NULL;
-    upipe_ffmt->scale_vaapi_mode = NULL;
-    upipe_ffmt->vpp_qsv_deinterlace = NULL;
-    upipe_ffmt->vpp_qsv_scale_mode = NULL;
-    upipe_ffmt->ni_quadra_scale_filterblit = NULL;
-    upipe_ffmt->zscale_filter = NULL;
-    upipe_ffmt->tonemap_tonemap = NULL;
-    upipe_ffmt->tonemap_param = NULL;
-    upipe_ffmt->tonemap_desat = NULL;
+    upipe_ffmt_init_options(upipe);
     upipe_ffmt->hw_type = NULL;
     upipe_ffmt->hw_device = NULL;
     upipe_throw_ready(upipe);
@@ -839,56 +845,49 @@ static int upipe_ffmt_set_option(struct upipe *upipe,
                                  const char *option,
                                  const char *value)
 {
-    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
-
-#define SET_OPTION_VALUE(Field, Value) \
-    UBASE_RETURN(ubase_strdup(&upipe_ffmt->Field, Value))
-
-#define SET_OPTION(Option, Field) \
-    if (!strcmp(option, Option)) { \
-        SET_OPTION_VALUE(Field, value) \
-        return UBASE_ERR_NONE; \
-    }
-
-    SET_OPTION("deinterlace_vaapi/mode", deinterlace_vaapi_mode)
-    SET_OPTION("scale_vaapi/mode", scale_vaapi_mode)
-    SET_OPTION("vpp_qsv/deinterlace", vpp_qsv_deinterlace)
-    SET_OPTION("vpp_qsv/scale_mode", vpp_qsv_scale_mode)
-    SET_OPTION("ni_quadra_scale/filterblit", ni_quadra_scale_filterblit)
-    SET_OPTION("zscale/filter", zscale_filter)
-    SET_OPTION("tonemap/tonemap", tonemap_tonemap)
-    SET_OPTION("tonemap/param", tonemap_param)
-    SET_OPTION("tonemap/desat", tonemap_desat)
+    UBASE_HANDLED_RETURN(upipe_ffmt_handle_set_options(upipe, option, value));
 
     if (!strcmp(option, "deinterlace-preset")) {
         if (!strcmp(value, "fast")) {
-            SET_OPTION_VALUE(deinterlace_vaapi_mode, "bob");
-            SET_OPTION_VALUE(vpp_qsv_deinterlace, "bob");
+            upipe_ffmt_set_deinterlace_vaapi_mode(upipe, "bob");
+            upipe_ffmt_set_vpp_qsv_deinterlace(upipe, "bob");
         } else if (!strcmp(value, "hq")) {
-            SET_OPTION_VALUE(deinterlace_vaapi_mode, "motion_compensated");
-            SET_OPTION_VALUE(vpp_qsv_deinterlace, "advanced");
+            upipe_ffmt_set_deinterlace_vaapi_mode(upipe, "motion_compensated");
+            upipe_ffmt_set_vpp_qsv_deinterlace(upipe, "advanced");
         } else
             return UBASE_ERR_INVALID;
     } else if (!strcmp(option, "scale-preset")) {
         if (!strcmp(value, "fast")) {
-            SET_OPTION_VALUE(scale_vaapi_mode, "fast");
-            SET_OPTION_VALUE(vpp_qsv_scale_mode, "low_power");
-            SET_OPTION_VALUE(ni_quadra_scale_filterblit, "0");
-            SET_OPTION_VALUE(zscale_filter, "bilinear");
+            upipe_ffmt_set_scale_vaapi_mode(upipe, "fast");
+            upipe_ffmt_set_vpp_qsv_scale_mode(upipe, "low_power");
+            upipe_ffmt_set_ni_quadra_scale_filterblit(upipe, "0");
+            upipe_ffmt_set_zscale_filter(upipe, "bilinear");
         } else if (!strcmp(value, "hq")) {
-            SET_OPTION_VALUE(scale_vaapi_mode, "hq");
-            SET_OPTION_VALUE(vpp_qsv_scale_mode, "hq");
-            SET_OPTION_VALUE(ni_quadra_scale_filterblit, NULL);
-            SET_OPTION_VALUE(zscale_filter, "bicubic");
+            upipe_ffmt_set_scale_vaapi_mode(upipe, "hq");
+            upipe_ffmt_set_vpp_qsv_scale_mode(upipe, "hq");
+            upipe_ffmt_set_ni_quadra_scale_filterblit(upipe, NULL);
+            upipe_ffmt_set_zscale_filter(upipe, "bicubic");
         } else
             return UBASE_ERR_INVALID;
     } else
         return UBASE_ERR_INVALID;
 
-#undef SET_OPTION_VALUE
-#undef SET_OPTION
-
     return UBASE_ERR_NONE;
+}
+
+/** @internal @This gets the filters options.
+ *
+ * @param upipe description structure of the pipe
+ * @param option option name (filter name/option)
+ * @param value filled with the configured value or NULL for default value
+ * @return an error code
+ */
+static int upipe_ffmt_get_option(struct upipe *upipe,
+                                 const char *option,
+                                 const char **value)
+{
+    UBASE_HANDLED_RETURN(upipe_ffmt_handle_get_options(upipe, option, value));
+    return UBASE_ERR_INVALID;
 }
 
 /** @internal @This sets the input flow definition.
@@ -1053,6 +1052,11 @@ static int upipe_ffmt_control(struct upipe *upipe, int command, va_list args)
             const char *value = va_arg(args, const char *);
             return upipe_ffmt_set_option(upipe, option, value);
         }
+        case UPIPE_GET_OPTION: {
+            const char *option = va_arg(args, const char *);
+            const char **value = va_arg(args, const char **);
+            return upipe_ffmt_get_option(upipe, option, value);
+        }
         case UPIPE_SET_FLOW_DEF: {
             struct uref *flow_def = va_arg(args, struct uref *);
             return upipe_ffmt_set_flow_def(upipe, flow_def);
@@ -1086,15 +1090,7 @@ static void upipe_ffmt_free(struct urefcount *urefcount_real)
         upipe_ffmt_from_urefcount_real(urefcount_real);
     struct upipe *upipe = upipe_ffmt_to_upipe(upipe_ffmt);
     upipe_throw_dead(upipe);
-    free(upipe_ffmt->deinterlace_vaapi_mode);
-    free(upipe_ffmt->scale_vaapi_mode);
-    free(upipe_ffmt->vpp_qsv_deinterlace);
-    free(upipe_ffmt->vpp_qsv_scale_mode);
-    free(upipe_ffmt->ni_quadra_scale_filterblit);
-    free(upipe_ffmt->zscale_filter);
-    free(upipe_ffmt->tonemap_tonemap);
-    free(upipe_ffmt->tonemap_param);
-    free(upipe_ffmt->tonemap_desat);
+    upipe_ffmt_clean_options(upipe);
     free(upipe_ffmt->hw_type);
     free(upipe_ffmt->hw_device);
     upipe_ffmt_clean_input(upipe);
