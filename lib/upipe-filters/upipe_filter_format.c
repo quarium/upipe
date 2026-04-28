@@ -32,6 +32,7 @@
 #include "upipe/upipe_helper_flow_def.h"
 #include "upipe-modules/upipe_setflowdef.h"
 #include "upipe-modules/upipe_interlace.h"
+#include "upipe-modules/upipe_probe_uref.h"
 #include "upipe-filters/upipe_filter_format.h"
 #include "upipe-filters/upipe_filter_blend.h"
 #include "upipe-swscale/upipe_sws.h"
@@ -755,7 +756,13 @@ static struct upipe *upipe_ffmt_alloc_deint(struct upipe *upipe,
 
     if (unlikely(!ffmt_mgr->deint_mgr)) {
         upipe_warn(upipe, "deinterlace manager is not set");
-        return NULL;
+        struct upipe_mgr *upipe_probe_uref_mgr = upipe_probe_uref_mgr_alloc();
+        struct upipe *fake_deint = upipe_void_alloc(
+            upipe_probe_uref_mgr,
+            uprobe_pfx_alloc(uprobe_use(upipe_ffmt_to_proxy_probe(upipe_ffmt)),
+                             UPROBE_LOG_VERBOSE, "fake deint"));
+        upipe_mgr_release(upipe_probe_uref_mgr);
+        return fake_deint;
     }
 
     struct upipe *deint = upipe_void_alloc(
