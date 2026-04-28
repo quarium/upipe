@@ -853,9 +853,13 @@ static bool upipe_x264_handle(struct upipe *upipe, struct uref *uref,
                     case H264SLI_TYPE_B:
                         pic.i_type = X264_TYPE_B;
                         break;
-                    case H264SLI_TYPE_I:
+                    case H264SLI_TYPE_I: {
+                        uint64_t pts_sys = 0;
+                        uref_clock_get_pts_sys(uref, &pts_sys);
+                        upipe_notice_va(upipe, "key frame at %"PRIu64, pts_sys);
                         pic.i_type = X264_TYPE_KEYFRAME;
                         break;
+                    }
                     case H264SLI_TYPE_SP:
                     case H264SLI_TYPE_SI:
                     default:

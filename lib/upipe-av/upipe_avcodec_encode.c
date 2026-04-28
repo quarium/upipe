@@ -1071,9 +1071,13 @@ static void upipe_avcenc_encode_video(struct upipe *upipe,
                 case H264SLI_TYPE_B:
                     frame->pict_type = AV_PICTURE_TYPE_B;
                     break;
-                case H264SLI_TYPE_I:
+                case H264SLI_TYPE_I: {
+                    uint64_t pts_sys = 0;
+                    uref_clock_get_pts_sys(uref, &pts_sys);
+                    upipe_notice_va(upipe, "key frame at %" PRIu64, pts_sys);
                     frame->pict_type = AV_PICTURE_TYPE_I;
                     break;
+                }
                 case H264SLI_TYPE_SP:
                     frame->pict_type = AV_PICTURE_TYPE_SP;
                     break;

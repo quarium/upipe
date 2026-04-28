@@ -1357,6 +1357,7 @@ static int upipe_ffmt_build_pic(struct upipe *upipe,
     uref_pic_delete_tff(flow_def_output);
     uref_pic_flow_delete_fps(flow_def_output);
     uref_pic_flow_delete_surface_type(flow_def_output);
+    uref_clock_delete_latency(flow_def_output);
     err = upipe_setflowdef_set_dict(upipe_ffmt->last_inner, flow_def_output);
     if (unlikely(!ubase_check(err))) {
         upipe_release(first);
