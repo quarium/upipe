@@ -169,8 +169,6 @@ struct upipe_avfilt {
     AVFilterContext *buffer_ctx;
     /** avfilter buffer sink */
     AVFilterContext *buffersink_ctx;
-    /** uref from input */
-    struct uref *uref;
 
     /** input latency */
     uint64_t input_latency;
@@ -1924,6 +1922,21 @@ static struct uref *upipe_avfilt_build_flow_def(struct upipe *upipe,
     return flow_def;
 }
 
+static struct uref *uref_from_opaque_ref(AVBufferRef *ref)
+{
+    return ref ? uref_dup((struct uref *)ref->data) : NULL;
+}
+
+static void uref_free_from_opaque(void *opaque, uint8_t *data)
+{
+    uref_free(opaque);
+}
+
+static AVBufferRef *uref_to_opaque_ref(struct uref *uref)
+{
+    return av_buffer_create((uint8_t *)uref, 0, uref_free_from_opaque, uref, 0);
+}
+
 /** @internal @This outputs a frame.
  *
  * @param upipe description structure of the pipe
@@ -1999,7 +2012,7 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
         return;
     }
 
-    struct uref *uref = uref_dup(upipe_avfilt->uref);
+    struct uref *uref = uref_from_opaque_ref(frame->opaque_ref);
     if (uref == NULL) {
         ubuf_free(ubuf);
         upipe_throw_error(upipe, UBASE_ERR_ALLOC);
@@ -2092,10 +2105,8 @@ static void upipe_avfilt_input(struct upipe *upipe,
         upipe_warn(upipe, "got discontinuity");
         upipe_avfilt_clean_filters(upipe);
     }
-    uref_free(upipe_avfilt->uref);
     upipe_avfilt->last_input_pts_prog = UINT64_MAX;
     uref_clock_get_pts_prog(uref, &upipe_avfilt->last_input_pts_prog);
-    upipe_avfilt->uref = uref;
 
     if (!ubase_check(ubuf_av_get_avframe(uref->ubuf, frame))) {
         struct uref *uref_tmp = uref_dup(uref);
@@ -2105,6 +2116,7 @@ static void upipe_avfilt_input(struct upipe *upipe,
         if (!ubase_check(ret)) {
             upipe_throw_error(upipe, ret);
             uref_free(uref_tmp);
+            uref_free(uref);
             goto end;
         }
     }
@@ -2117,6 +2129,8 @@ static void upipe_avfilt_input(struct upipe *upipe,
         if (ubase_check(uref_clock_get_duration(uref, &duration)))
             frame->pkt_duration = duration;
     }
+
+    frame->opaque_ref = uref_to_opaque_ref(uref);
 
     if (!upipe_avfilt->configured) {
         ret = upipe_avfilt_init_buffer_from_first_frame(upipe, frame);
@@ -2290,7 +2304,6 @@ static struct upipe *upipe_avfilt_alloc(struct upipe_mgr *mgr,
     upipe_avfilt->ubuf_mgr = ubuf_av_mgr_alloc();
     upipe_avfilt->buffer_ctx = NULL;
     upipe_avfilt->buffersink_ctx = NULL;
-    upipe_avfilt->uref = NULL;
     upipe_avfilt->options = NULL;
     upipe_avfilt->input_latency = 0;
     upipe_avfilt->last_input_pts_prog = UINT64_MAX;
@@ -2350,7 +2363,6 @@ static void upipe_avfilt_free(struct upipe *upipe)
     free(upipe_avfilt->filters_desc);
     av_buffer_unref(&upipe_avfilt->hw_device_ctx);
     av_dict_free(&upipe_avfilt->options);
-    uref_free(upipe_avfilt->uref);
     ubuf_mgr_release(upipe_avfilt->ubuf_mgr);
     upipe_avfilt_clean_sync(upipe);
     upipe_avfilt_clean_sub_subs(upipe);
