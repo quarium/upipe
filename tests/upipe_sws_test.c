@@ -47,8 +47,10 @@
 #define UBUF_ALIGN_HOFFSET  0
 #define UPROBE_LOG_LEVEL UPROBE_LOG_DEBUG
 
-#define SRCSIZE             32
-#define DSTSIZE             16
+#define SRC_HSIZE           1920
+#define SRC_VSIZE           1080
+#define DST_HSIZE           578
+#define DST_VSIZE           326
 
 /** definition of our uprobe */
 static int catch(struct uprobe *uprobe, struct upipe *upipe,
@@ -126,7 +128,7 @@ static void fill_in(struct uref *uref,
 /* compare a chroma of two pictures */
 static bool compare_chroma(struct uref **urefs, const char *chroma, uint8_t hsub, uint8_t vsub, uint8_t macropixel_size, struct uprobe *uprobe)
 {
-    char string[512], *str;
+    char string[3 * SRC_HSIZE], *str;
     size_t hsize[2], vsize[2];
     int stride[2];
     uint8_t *buffer[2];
@@ -306,7 +308,7 @@ int main(int argc, char **argv)
 //    uref_dump(pic_flow, mainlog);
 
     /* allocate reference picture */
-    uref1 = uref_pic_alloc(uref_mgr, ubuf_mgr, SRCSIZE, SRCSIZE);
+    uref1 = uref_pic_alloc(uref_mgr, ubuf_mgr, SRC_HSIZE, SRC_VSIZE);
     assert(uref1 != NULL);
     assert(uref1->ubuf != NULL);
     ubase_assert(uref_pic_set_progressive(uref1, true));
@@ -319,14 +321,14 @@ int main(int argc, char **argv)
 
     // sws_scale test
     // uref2 : dest image
-    uref2 = uref_pic_alloc(uref_mgr, ubuf_mgr, DSTSIZE, DSTSIZE);
+    uref2 = uref_pic_alloc(uref_mgr, ubuf_mgr, DST_HSIZE, DST_VSIZE);
     assert(uref2);
     assert(uref2->ubuf);
     ubase_assert(uref_pic_set_progressive(uref2, true));
 
     img_convert_ctx = sws_getCachedContext(NULL,
-                SRCSIZE, SRCSIZE, AV_PIX_FMT_YUV420P,
-                DSTSIZE, DSTSIZE, AV_PIX_FMT_YUV420P,
+                SRC_HSIZE, SRC_VSIZE, AV_PIX_FMT_YUV420P,
+                DST_HSIZE, DST_VSIZE, AV_PIX_FMT_YUV420P,
                 SWS_FULL_CHR_H_INP | SWS_ACCURATE_RND | SWS_LANCZOS,
                 NULL, NULL, NULL);
     assert(img_convert_ctx);
@@ -346,7 +348,7 @@ int main(int argc, char **argv)
 
     // fire raw swscale test
     sws_scale(img_convert_ctx, (const uint8_t * const*) slices, strides,
-                               0, SRCSIZE,
+                               0, SRC_VSIZE,
                                dslices, dstrides);
     sws_freeContext(img_convert_ctx);
 
@@ -372,8 +374,8 @@ int main(int argc, char **argv)
     /* Define outputflow */
     struct uref *output_flow = uref_dup(pic_flow);
     assert(output_flow != NULL);
-    ubase_assert(uref_pic_flow_set_hsize(output_flow, DSTSIZE));
-    ubase_assert(uref_pic_flow_set_vsize(output_flow, DSTSIZE));
+    ubase_assert(uref_pic_flow_set_hsize(output_flow, DST_HSIZE));
+    ubase_assert(uref_pic_flow_set_vsize(output_flow, DST_VSIZE));
 
     struct upipe *sws = upipe_flow_alloc(upipe_sws_mgr,
             uprobe_pfx_alloc(uprobe_use(logger), UPROBE_LOG_LEVEL, "sws"),
@@ -402,6 +404,12 @@ int main(int argc, char **argv)
     assert(compare_chroma(((struct uref*[]){uref2, sws_test_from_upipe(sws_test)->pic}), "y8", 1, 1, 1, logger));
     assert(compare_chroma(((struct uref*[]){uref2, sws_test_from_upipe(sws_test)->pic}), "u8", 2, 2, 1, logger));
     assert(compare_chroma(((struct uref*[]){uref2, sws_test_from_upipe(sws_test)->pic}), "v8", 2, 2, 1, logger));
+
+    pic = uref_dup(uref1);
+    uref_pic_delete_progressive(pic);
+    upipe_input(sws, pic, NULL);
+
+    assert(sws_test_from_upipe(sws_test)->pic);
 
     /* release urefs */
     uref_free(uref1);

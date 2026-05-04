@@ -403,20 +403,7 @@ static int upipe_work_control_first_inner(struct upipe *upipe,
                                           int cmd, va_list args)
 {
     struct upipe_work *upipe_work = upipe_work_from_upipe(upipe);
-    struct upipe *inner = NULL;
-    bool frozen = upipe_work->frozen;
-    int err = UBASE_ERR_UNHANDLED;
-
-    if (!frozen && !ubase_check(upipe_work_freeze(upipe)))
-        return err;
-
-    if (ubase_check(upipe_work_get_first_inner(upipe, &inner)) && inner)
-        err = upipe_control_va(inner, cmd, args);
-
-    if (!frozen)
-        upipe_bin_thaw(upipe);
-
-    return err;
+    return upipe_control_va(upipe_work->first_remote_xfer, cmd, args);
 }
 
 /** @internal @This gets the last inner pipe of the bin.
