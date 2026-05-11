@@ -22,6 +22,7 @@
 #include "upipe/upipe_helper_upipe.h"
 #include "upipe/upipe_helper_flow.h"
 #include "upipe/upipe_helper_urefcount.h"
+#include "upipe/upipe_helper_urefcount_real.h"
 #include "upipe/upipe_helper_flow_format.h"
 #include "upipe/upipe_helper_inner.h"
 #include "upipe/upipe_helper_uprobe.h"
@@ -143,6 +144,7 @@ struct upipe_ffmt {
 UPIPE_HELPER_UPIPE(upipe_ffmt, upipe, UPIPE_FFMT_SIGNATURE)
 UPIPE_HELPER_FLOW(upipe_ffmt, NULL)
 UPIPE_HELPER_UREFCOUNT(upipe_ffmt, urefcount, upipe_ffmt_no_ref)
+UPIPE_HELPER_UREFCOUNT_REAL(upipe_ffmt, urefcount_real, upipe_ffmt_free)
 UPIPE_HELPER_INPUT(upipe_ffmt, urefs, nb_urefs, max_urefs, blockers,
                   upipe_ffmt_handle)
 UPIPE_HELPER_INNER(upipe_ffmt, first_inner)
@@ -154,11 +156,6 @@ UPIPE_HELPER_FLOW_FORMAT(upipe_ffmt, request,
                          upipe_ffmt_check_flow_format,
                          upipe_ffmt_register_bin_output_request,
                          upipe_ffmt_unregister_bin_output_request)
-
-UBASE_FROM_TO(upipe_ffmt, urefcount, urefcount_real, urefcount_real)
-
-/** @hidden */
-static void upipe_ffmt_free(struct urefcount *urefcount_real);
 
 /** @internal @This catches events coming from an inner pipe, and
  * attaches them to the bin pipe.
@@ -197,7 +194,7 @@ static struct upipe *upipe_ffmt_alloc(struct upipe_mgr *mgr,
         return NULL;
     struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
     upipe_ffmt_init_urefcount(upipe);
-    urefcount_init(upipe_ffmt_to_urefcount_real(upipe_ffmt), upipe_ffmt_free);
+    upipe_ffmt_init_urefcount_real(upipe);
     upipe_ffmt_init_flow_format(upipe);
     upipe_ffmt_init_input(upipe);
     upipe_ffmt_init_last_inner_probe(upipe);
@@ -1078,14 +1075,14 @@ static int upipe_ffmt_control(struct upipe *upipe, int command, va_list args)
 
 /** @This frees a upipe.
  *
- * @param urefcount_real pointer to urefcount_real structure
+ * @param upipe description structure of the pipe
  */
-static void upipe_ffmt_free(struct urefcount *urefcount_real)
+static void upipe_ffmt_free(struct upipe *upipe)
 {
-    struct upipe_ffmt *upipe_ffmt =
-        upipe_ffmt_from_urefcount_real(urefcount_real);
-    struct upipe *upipe = upipe_ffmt_to_upipe(upipe_ffmt);
+    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
+
     upipe_throw_dead(upipe);
+
     free(upipe_ffmt->deinterlace_vaapi_mode);
     free(upipe_ffmt->scale_vaapi_mode);
     free(upipe_ffmt->vpp_qsv_deinterlace);
@@ -1105,7 +1102,7 @@ static void upipe_ffmt_free(struct urefcount *urefcount_real)
     uref_free(upipe_ffmt->flow_def_provided);
     uprobe_clean(&upipe_ffmt->proxy_probe);
     upipe_ffmt_clean_last_inner_probe(upipe);
-    urefcount_clean(urefcount_real);
+    upipe_ffmt_clean_urefcount_real(upipe);
     upipe_ffmt_clean_urefcount(upipe);
     upipe_ffmt_free_flow(upipe);
 }
@@ -1116,10 +1113,9 @@ static void upipe_ffmt_free(struct urefcount *urefcount_real)
  */
 static void upipe_ffmt_no_ref(struct upipe *upipe)
 {
-    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
     upipe_ffmt_clean_bin_input(upipe);
     upipe_ffmt_clean_bin_output(upipe);
-    urefcount_release(upipe_ffmt_to_urefcount_real(upipe_ffmt));
+    upipe_ffmt_release_urefcount_real(upipe);
 }
 
 /** @This frees a upipe manager.
