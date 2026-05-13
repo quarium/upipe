@@ -469,6 +469,8 @@ static int upipe_work_control_last_inner(struct upipe *upipe,
  */
 static int upipe_work_control(struct upipe *upipe, int command, va_list args)
 {
+    struct upipe_work *upipe_work = upipe_work_from_upipe(upipe);
+
     switch (command) {
         case UPIPE_ATTACH_UPUMP_MGR: {
             struct upipe_work *upipe_work = upipe_work_from_upipe(upipe);
@@ -490,6 +492,12 @@ static int upipe_work_control(struct upipe *upipe, int command, va_list args)
         case UPIPE_BIN_GET_LAST_INNER: {
             struct upipe **p = va_arg(args, struct upipe **);
             return upipe_work_get_last_inner(upipe, p);
+        }
+        case UPIPE_SET_URI: {
+            if (!upipe_work->first_remote_xfer)
+                return UBASE_ERR_INVALID;
+            return upipe_control_va(upipe_work->first_remote_xfer, command,
+                                    args);
         }
         default:
             break;
