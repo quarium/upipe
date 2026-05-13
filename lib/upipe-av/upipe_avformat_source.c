@@ -702,9 +702,9 @@ static void upipe_avfsrc_worker(struct upump *upump)
 static bool upipe_avfsrc_start(struct upipe *upipe)
 {
     struct upipe_avfsrc *upipe_avfsrc = upipe_avfsrc_from_upipe(upipe);
-    struct upump *upump = upump_alloc_idler(upipe_avfsrc->upump_mgr,
-                                            upipe_avfsrc_worker, upipe,
-                                            upipe->refcount);
+    struct upump *upump =
+        upump_alloc_timer(upipe_avfsrc->upump_mgr, upipe_avfsrc_worker, upipe,
+                          upipe->refcount, 0, UCLOCK_FREQ / 1000);
     if (unlikely(upump == NULL)) {
         upipe_throw_fatal(upipe, UBASE_ERR_UPUMP);
         return false;
