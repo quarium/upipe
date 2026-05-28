@@ -1685,8 +1685,10 @@ static int upipe_avfilt_set_flow_def(struct upipe *upipe,
 {
     struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_upipe(upipe);
 
-    if (upipe_avfilt->filters_desc == NULL)
+    if (upipe_avfilt->filters_desc == NULL) {
+        upipe_err(upipe, "filter graph is not set");
         return UBASE_ERR_INVALID;
+    }
 
     if (upipe_avfilt->flow_def_input &&
         !udict_cmp(upipe_avfilt->flow_def_input->udict, flow_def->udict))

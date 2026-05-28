@@ -30,8 +30,14 @@ struct upump_ev_mgr {
 
     /** ev private structure */
     struct ev_loop *ev_loop;
+    /** optional mutual exclusion primitives */
+    struct umutex *umutex;
     /** true if the loop has to be destroyed at the end */
     bool destroy;
+    /** true when the local event loop is sleeping */
+    bool frozen;
+    /** async event to notify local event loop from external modifications */
+    struct ev_async async;
 
     /** common structure */
     struct upump_common_mgr common_mgr;
@@ -186,6 +192,22 @@ static struct upump *upump_ev_alloc(struct upump_mgr *mgr,
     return upump;
 }
 
+/** @internal @This notifies the event loop of remote event modifications when
+ * it runs in another thread.
+ *
+ * @param ev_mgr remote event manager
+ */
+static void upump_ev_mgr_notify(struct upump_ev_mgr *ev_mgr)
+{
+    /* if event manager is frozen, this means that the event loop is in another
+     * thread and sleeping so we need to notify it to take account of
+     * modifications using async event */
+    if (ev_mgr && ev_mgr->frozen)
+        /* notify remote event loop */
+        ev_async_send(ev_mgr->ev_loop, &ev_mgr->async);
+
+}
+
 /** @This starts a pump.
  *
  * @param upump description structure of the pump
@@ -213,6 +235,9 @@ static void upump_ev_real_start(struct upump *upump, bool status)
         default:
             break;
     }
+
+    upump_ev_mgr_notify(ev_mgr);
+
     if (!status)
         ev_unref(ev_mgr->ev_loop);
 }
@@ -246,6 +271,8 @@ static void upump_ev_real_stop(struct upump *upump, bool status)
         default:
             break;
     }
+
+    upump_ev_mgr_notify(ev_mgr);
 }
 
 /** @This restarts a pump.
@@ -263,19 +290,20 @@ static void upump_ev_real_restart(struct upump *upump, bool status)
             bool active = ev_is_active(&upump_ev->ev_timer);
             if (active && upump_ev->ev_timer.repeat) {
                 ev_timer_again(ev_mgr->ev_loop, &upump_ev->ev_timer);
-                return;
+            } else {
+                if (active)
+                    ev_timer_stop(ev_mgr->ev_loop, &upump_ev->ev_timer);
+                upump_ev->ev_timer.at =
+                    (ev_tstamp)upump_ev->timer.after / UCLOCK_FREQ;
+                ev_timer_start(ev_mgr->ev_loop, &upump_ev->ev_timer);
             }
-
-            if (active)
-                ev_timer_stop(ev_mgr->ev_loop, &upump_ev->ev_timer);
-            upump_ev->ev_timer.at =
-                (ev_tstamp)upump_ev->timer.after / UCLOCK_FREQ;
-            ev_timer_start(ev_mgr->ev_loop, &upump_ev->ev_timer);
             break;
         }
         default:
             break;
     }
+
+    upump_ev_mgr_notify(ev_mgr);
 }
 
 /** @This released the memory space previously used by a pump.
@@ -373,8 +401,11 @@ static int upump_ev_control(struct upump *upump, int command, va_list args)
  **/
 static void upump_ev_mgr_lock(struct ev_loop *loop)
 {
-    struct umutex *mutex = ev_userdata(loop);
+    struct upump_ev_mgr *ev_mgr = ev_userdata(loop);
+    struct umutex *mutex = ev_mgr->umutex;
     umutex_lock(mutex);
+    ev_async_stop(ev_mgr->ev_loop, &ev_mgr->async);
+    ev_mgr->frozen = false;
 }
 
 /** @internal @This is called when the event loop goes to sleep.
@@ -383,7 +414,10 @@ static void upump_ev_mgr_lock(struct ev_loop *loop)
  **/
 static void upump_ev_mgr_unlock(struct ev_loop *loop)
 {
-    struct umutex *mutex = ev_userdata(loop);
+    struct upump_ev_mgr *ev_mgr = ev_userdata(loop);
+    struct umutex *mutex = ev_mgr->umutex;
+    ev_mgr->frozen = true;
+    ev_async_start(ev_mgr->ev_loop, &ev_mgr->async);
     umutex_unlock(mutex);
 }
 
@@ -399,7 +433,8 @@ static int upump_ev_mgr_run(struct upump_mgr *mgr, struct umutex *mutex)
     struct upump_ev_mgr *ev_mgr = upump_ev_mgr_from_upump_mgr(mgr);
 
     if (mutex != NULL) {
-        ev_set_userdata(ev_mgr->ev_loop, mutex);
+        ev_mgr->umutex = mutex;
+        ev_set_userdata(ev_mgr->ev_loop, ev_mgr);
         ev_set_loop_release_cb(ev_mgr->ev_loop,
                                upump_ev_mgr_unlock, upump_ev_mgr_lock);
 
@@ -456,6 +491,18 @@ static void upump_ev_mgr_free(struct urefcount *urefcount)
     free(ev_mgr);
 }
 
+/** @internal @This is called when remote threads has modified an event on this
+ * thread.
+ *
+ * @param ev_loop pointer to local event loop
+ * @param w pointer to the raised event
+ * @param revents event flags
+ */
+static void upump_ev_mgr_async(struct ev_loop *loop, struct ev_async *w, int revents)
+{
+    /* nothing to do */
+}
+
 /** @This allocates and initializes a upump_ev_mgr structure.
  *
  * @param ev_loop pointer to an ev loop
@@ -490,6 +537,8 @@ struct upump_mgr *upump_ev_mgr_alloc(struct ev_loop *ev_loop,
 
     ev_mgr->ev_loop = ev_loop;
     ev_mgr->destroy = false;
+    ev_mgr->frozen = false;
+    ev_async_init(&ev_mgr->async, upump_ev_mgr_async);
     return mgr;
 }
 
