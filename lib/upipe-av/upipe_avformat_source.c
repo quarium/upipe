@@ -55,7 +55,7 @@
 /** lowest possible timestamp (just an arbitrarily high time) */
 #define AV_CLOCK_MIN UINT32_MAX
 /** offset between DTS and (artificial) clock references */
-#define PCR_OFFSET (UCLOCK_FREQ * 3)
+#define PCR_OFFSET 0
 /** 1/UCLOCK_FREQ time base */
 #define UCLOCK_TIME_BASE (AVRational){ 1, UCLOCK_FREQ }
 
