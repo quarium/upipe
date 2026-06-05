@@ -1214,8 +1214,8 @@ static int upipe_avfsrc_check(struct upipe *upipe)
     if (upipe_avfsrc->upump_mgr != NULL && upipe_avfsrc->url != NULL &&
         upipe_avfsrc->upump == NULL) {
         struct upump *upump =
-            upump_alloc_idler(upipe_avfsrc->upump_mgr, upipe_avfsrc_worker,
-                              upipe, upipe->refcount);
+            upump_alloc_timer(upipe_avfsrc->upump_mgr, upipe_avfsrc_worker,
+                              upipe, upipe->refcount, 0, UCLOCK_FREQ / 100);
         if (unlikely(upump == NULL)) {
             upipe_warn(upipe, "fail to allocate idler");
             return UBASE_ERR_ALLOC;
