@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2026 EasyTools
  *
  * Authors: Christophe Massiot
  *
@@ -181,29 +182,35 @@ static int upipe_rtpsrc_control(struct upipe *upipe, int command, va_list args)
 {
     struct upipe_rtpsrc *upipe_rtpsrc = upipe_rtpsrc_from_upipe(upipe);
 
-    switch (command) {
-        case UPIPE_REGISTER_REQUEST:
-        case UPIPE_UNREGISTER_REQUEST:
-        case UPIPE_ATTACH_UREF_MGR:
-        case UPIPE_ATTACH_UPUMP_MGR:
-        case UPIPE_ATTACH_UBUF_MGR:
-        case UPIPE_ATTACH_UCLOCK:
-        case UPIPE_GET_OUTPUT_SIZE:
-        case UPIPE_SET_OUTPUT_SIZE:
-        case UPIPE_GET_URI:
-        case UPIPE_SET_URI:
-        case UPIPE_UDPSRC_GET_FD:
-        case UPIPE_UDPSRC_SET_FD:
-            return upipe_control_va(upipe_rtpsrc->source, command, args);
-        case UPIPE_BIN_GET_FIRST_INNER: {
-            struct upipe **p = va_arg(args, struct upipe **);
-            *p = upipe_rtpsrc->source;
-            return (*p != NULL) ? UBASE_ERR_NONE : UBASE_ERR_UNHANDLED;
+    uint32_t signature = 0;
+    if (command < UPIPE_CONTROL_LOCAL) {
+        switch (command) {
+            case UPIPE_REGISTER_REQUEST:
+            case UPIPE_UNREGISTER_REQUEST:
+            case UPIPE_ATTACH_UREF_MGR:
+            case UPIPE_ATTACH_UPUMP_MGR:
+            case UPIPE_ATTACH_UBUF_MGR:
+            case UPIPE_ATTACH_UCLOCK:
+            case UPIPE_GET_OUTPUT_SIZE:
+            case UPIPE_SET_OUTPUT_SIZE:
+            case UPIPE_GET_URI:
+            case UPIPE_SET_URI:
+                return upipe_control_va(upipe_rtpsrc->source, command, args);
+            case UPIPE_BIN_GET_FIRST_INNER: {
+                struct upipe **p = va_arg(args, struct upipe **);
+                *p = upipe_rtpsrc->source;
+                return (*p != NULL) ? UBASE_ERR_NONE : UBASE_ERR_UNHANDLED;
+            }
         }
-
-        default:
-            return upipe_rtpsrc_control_bin_output(upipe, command, args);
+    } else {
+        signature = ubase_get_signature(args);
+        if (signature == UPIPE_UDPSRC_SIGNATURE)
+            return upipe_control_va(upipe_rtpsrc->source, command, args);
+        else if (signature == UPIPE_RTPD_SIGNATURE)
+            return upipe_control_va(upipe_rtpsrc->last_inner, command, args);
     }
+
+    return upipe_rtpsrc_control_bin_output(upipe, command, args);
 }
 
 /** @This frees a upipe.

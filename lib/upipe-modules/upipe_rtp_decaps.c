@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014-2017 OpenHeadend S.A.R.L.
+ * Copyright (C) 2026 EasyTools
  *
  * Authors: Christophe Massiot
  *
@@ -101,6 +102,8 @@ struct upipe_rtpd {
 
     /** expected sequence number */
     int expected_seqnum;
+    /** wanted input RTP type or -1, filter out others */
+    int input_type;
     /** current RTP type */
     uint8_t type;
     /** current output mode */
@@ -177,6 +180,7 @@ static struct upipe *upipe_rtpd_alloc(struct upipe_mgr *mgr,
     upipe_rtpd_init_output(upipe);
     upipe_rtpd_init_ubuf_mgr(upipe);
     upipe_rtpd->expected_seqnum = -1;
+    upipe_rtpd->input_type = -1;
     upipe_rtpd->type = UINT8_MAX;
     upipe_rtpd->mode = upipe_rtpd->mode_config = UPIPE_RTPD_UNKNOWN;
     upipe_rtpd->lost = 0;
@@ -611,6 +615,12 @@ static inline void upipe_rtpd_input(struct upipe *upipe, struct uref *uref,
         return;
     }
 
+    if (upipe_rtpd->input_type >= 0 && upipe_rtpd->input_type != type) {
+        upipe_verbose(upipe, "configured input type mismatch, dropping...");
+        uref_free(uref);
+        return;
+    }
+
     if (padding) {
         uint8_t padding_size;
         if (unlikely(!ubase_check(uref_block_extract(uref, -1, 1,
@@ -826,6 +836,11 @@ static int upipe_rtpd_control(struct upipe *upipe, int command, va_list args)
             uint64_t *lost = va_arg(args, uint64_t *);
             *lost = upipe_rtpd->lost;
             upipe_rtpd->lost = 0; /* reset counter */
+            return UBASE_ERR_NONE;
+        }
+        case UPIPE_RTPD_SET_INPUT_TYPE: {
+            UBASE_SIGNATURE_CHECK(args, UPIPE_RTPD_SIGNATURE);
+            upipe_rtpd->input_type = va_arg(args, int);
             return UBASE_ERR_NONE;
         }
         default:
