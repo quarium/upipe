@@ -84,7 +84,7 @@ static void STRUCTURE##_init_flow_def_check(struct upipe *upipe)            \
  * @param upipe description structure of the pipe                           \
  * @return a pointer to a flow def check                                    \
  */                                                                         \
-static struct uref *                                                        \
+UBASE_UNUSED static struct uref *                                           \
     STRUCTURE##_alloc_flow_def_check(struct upipe *upipe,                   \
                                      struct uref *flow_def_input)           \
 {                                                                           \
