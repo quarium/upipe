@@ -323,6 +323,568 @@ static void upipe_ffmt_push(struct upipe *upipe, struct upipe **last_inner,
     *last_inner = input;
 }
 
+/** @internal @This builds the inner pipeline for pic flow
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_def_input input flow definition
+ * @param flow_def_provided output flow definition
+ * @return an error code
+ */
+static int upipe_ffmt_build_pic(struct upipe *upipe,
+                                struct uref *flow_def_input,
+                                struct uref *flow_def_provided)
+{
+    struct upipe_ffmt_mgr *ffmt_mgr = upipe_ffmt_mgr_from_upipe_mgr(upipe->mgr);
+    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
+    struct uref *flow_def_wanted = upipe_ffmt->flow_def_wanted;
+
+    /* check aspect ratio */
+    struct urational sar, dar;
+    if (ubase_check(uref_pic_flow_get_sar(flow_def_wanted, &sar)) && sar.num) {
+        struct urational input_sar;
+        uint64_t hsize;
+        if (!ubase_check(uref_pic_flow_get_hsize(flow_def_wanted, &hsize)) &&
+            ubase_check(uref_pic_flow_get_hsize(flow_def_input, &hsize)) &&
+            ubase_check(uref_pic_flow_get_sar(flow_def_input, &input_sar)) &&
+            input_sar.num) {
+            struct urational sar_factor = urational_divide(&input_sar, &sar);
+            hsize = (hsize * sar_factor.num / sar_factor.den / 2) * 2;
+            uref_pic_flow_set_hsize(flow_def_provided, hsize);
+            uref_pic_flow_set_hsize_visible(flow_def_provided, hsize);
+        }
+        uref_pic_flow_set_sar(flow_def_input, sar);
+    } else if (ubase_check(uref_pic_flow_get_dar(flow_def_wanted, &dar))) {
+        bool overscan;
+        if (ubase_check(uref_pic_flow_get_overscan(flow_def_wanted, &overscan)))
+            uref_pic_flow_set_overscan(flow_def_input, overscan);
+        uref_pic_flow_infer_sar(flow_def_input, dar);
+    }
+
+    /* delete sar and visible sizes to let sws set it */
+    if (!ubase_check(uref_pic_flow_get_sar(flow_def_wanted, NULL)) ||
+        !ubase_check(uref_pic_flow_get_hsize(flow_def_wanted, NULL)) ||
+        !ubase_check(uref_pic_flow_get_vsize(flow_def_wanted, NULL)))
+        uref_pic_flow_delete_sar(flow_def_provided);
+    uref_pic_flow_delete_hsize_visible(flow_def_provided);
+    uref_pic_flow_delete_vsize_visible(flow_def_provided);
+
+    const char *surface_type_in;
+    if (!ubase_check(uref_pic_flow_get_surface_type(flow_def_input,
+                                                    &surface_type_in)))
+        surface_type_in = "";
+
+    const char *surface_type_out;
+    if (!ubase_check(uref_pic_flow_get_surface_type(flow_def_provided,
+                                                    &surface_type_out)))
+        surface_type_out = "";
+
+    bool need_deint = ffmt_mgr->deint_mgr &&
+        !uref_pic_check_progressive(flow_def_input) &&
+        uref_pic_check_progressive(flow_def_provided);
+    bool need_interlace = ffmt_mgr->interlace_mgr &&
+        uref_pic_check_progressive(flow_def_input) &&
+        !uref_pic_check_progressive(flow_def_provided);
+    if (ffmt_mgr->deint_mgr && ffmt_mgr->interlace_mgr &&
+        !uref_pic_check_progressive(flow_def_input) &&
+        !uref_pic_check_progressive(flow_def_provided) &&
+        ubase_check(uref_pic_get_tff(flow_def_provided, NULL)) &&
+        ((uref_pic_check_tff(flow_def_input) &&
+          !uref_pic_check_tff(flow_def_provided)) ||
+         (!uref_pic_check_tff(flow_def_input) &&
+          uref_pic_check_tff(flow_def_provided)))) {
+        need_deint = true;
+        need_interlace = true;
+    }
+    bool need_scale =
+        uref_pic_flow_cmp_hsize(flow_def_input, flow_def_provided) ||
+        uref_pic_flow_cmp_vsize(flow_def_input, flow_def_provided);
+    bool need_range =
+        uref_pic_flow_cmp_full_range(flow_def_input, flow_def_provided);
+    bool need_format =
+        !uref_pic_flow_compare_format(flow_def_input, flow_def_provided);
+    bool need_sws = ffmt_mgr->sws_mgr &&
+        (need_scale || need_format || need_range);
+    bool pic_vaapi_in = !strcmp(surface_type_in, "av.vaapi");
+    bool pic_vaapi_out = !strcmp(surface_type_out, "av.vaapi");
+    bool pic_qsv_in = !strcmp(surface_type_in, "av.qsv");
+    bool pic_qsv_out = !strcmp(surface_type_out, "av.qsv");
+    bool pic_quadra_in = !strcmp(surface_type_in, "av.ni_quadra");
+    bool pic_quadra_out = !strcmp(surface_type_out, "av.ni_quadra");
+    bool hw_in = pic_vaapi_in || pic_qsv_in || pic_quadra_in;
+    bool hw_out = pic_vaapi_out || pic_qsv_out || pic_quadra_out;
+    bool hw = hw_in || hw_out;
+    int bit_depth_in = 0;
+    int bit_depth_out = 0;
+    uref_pic_flow_get_bit_depth(flow_def_input, &bit_depth_in);
+    uref_pic_flow_get_bit_depth(flow_def_provided, &bit_depth_out);
+    bool need_hw_transfer = (hw_in && !hw_out) || (!hw_in && hw_out);
+    bool need_derive = pic_vaapi_in && pic_qsv_out;
+    bool need_tonemap =
+        ubase_check(uref_pic_flow_check_hdr10(flow_def_input)) &&
+        ubase_check(uref_pic_flow_check_sdr(flow_def_provided));
+    bool need_avfilter =
+        ffmt_mgr->avfilter_mgr && (hw || need_tonemap) &&
+        (need_deint || need_scale || need_format || need_hw_transfer ||
+         need_derive || need_range || need_tonemap);
+
+    const char *range_in =
+        ubase_check(uref_pic_flow_get_full_range(flow_def_input)) ?
+            "full" : "limited";
+    const char *range_out =
+        ubase_check(uref_pic_flow_get_full_range(flow_def_provided)) ?
+            "full" : "limited";
+    uint64_t hsize_in = 0, vsize_in = 0;
+    uint64_t hsize_out = 0, vsize_out = 0;
+    uref_pic_flow_get_hsize(flow_def_input, &hsize_in);
+    uref_pic_flow_get_vsize(flow_def_input, &vsize_in);
+    uref_pic_flow_get_hsize(flow_def_provided, &hsize_out);
+    uref_pic_flow_get_vsize(flow_def_provided, &vsize_out);
+
+    if (need_range)
+        upipe_notice_va(upipe, "need range conversion %s → %s", range_in,
+                        range_out);
+    if (need_scale)
+        upipe_notice_va(
+            upipe, "need scale %" PRIu64 "x%" PRIu64 " → %" PRIu64 "x%" PRIu64,
+            hsize_in, vsize_in, hsize_out, vsize_out);
+    if (need_format && ffmt_mgr->avfilter_mgr) {
+        const char *pix_fmt_in = "unknown";
+        const char *pix_fmt_out = "unknown";
+        upipe_avfilt_mgr_get_pixfmt_name(
+            ffmt_mgr->avfilter_mgr, flow_def_input, &pix_fmt_in, true);
+        upipe_avfilt_mgr_get_pixfmt_name(
+            ffmt_mgr->avfilter_mgr, flow_def_provided, &pix_fmt_out, true);
+        upipe_notice_va(upipe, "need format conversion %s → %s",
+                        pix_fmt_in, pix_fmt_out);
+    } else if (need_format) {
+        const struct uref_pic_flow_format *from =
+            uref_pic_flow_get_format(flow_def_input);
+        const struct uref_pic_flow_format *to =
+            uref_pic_flow_get_format(flow_def_provided);
+        upipe_notice_va(upipe, "need format conversion %s → %s",
+                        from ? from->name : "unknown",
+                        to ? to->name : "unknown");
+    }
+    if (need_hw_transfer)
+        upipe_notice_va(upipe, "need transfer %s → %s", hw_in ? "hw" : "sw",
+                        hw_out ? "hw" : "sw");
+    if (need_derive)
+        upipe_notice(upipe, "need hw surface mapping vaapi → qsv");
+    if (need_deint)
+        upipe_notice(upipe, "need deinterlace");
+    if (need_interlace)
+        upipe_notice(upipe, "need interlace");
+    if (need_tonemap)
+        upipe_notice(upipe, "need tonemap hdr10 → sdr");
+
+    struct upipe *last_inner = NULL;
+    if (need_avfilter) {
+        const char *pix_fmt = NULL;
+        upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
+                                         flow_def_provided, &pix_fmt, false);
+        const char *pix_fmt_sw = NULL;
+        upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
+                                         flow_def_provided, &pix_fmt_sw, true);
+
+        int val;
+
+        const char *color_matrix = NULL;
+        UBASE_RETURN(uref_pic_flow_get_matrix_coefficients_val(
+                flow_def_provided, &val))
+        if (val != 2)
+            UBASE_RETURN(upipe_avfilt_mgr_get_color_space_name(
+                    ffmt_mgr->avfilter_mgr, val, &color_matrix))
+
+        const char *color_primaries = NULL;
+        UBASE_RETURN(uref_pic_flow_get_colour_primaries_val(
+                flow_def_provided, &val))
+        if (val != 2)
+            UBASE_RETURN(upipe_avfilt_mgr_get_color_primaries_name(
+                    ffmt_mgr->avfilter_mgr, val, &color_primaries))
+
+        const char *color_transfer = NULL;
+        UBASE_RETURN(uref_pic_flow_get_transfer_characteristics_val(
+                flow_def_provided, &val))
+        if (val != 2)
+            UBASE_RETURN(upipe_avfilt_mgr_get_color_transfer_name(
+                    ffmt_mgr->avfilter_mgr, val, &color_transfer))
+
+        bool in_10bit = bit_depth_in == 10;
+        bool out_10bit = bit_depth_out == 10;
+        const char *pix_fmt_semiplanar_in = in_10bit ? "p010le" : "nv12";
+        const char *pix_fmt_semiplanar_out = out_10bit ? "p010le" : "nv12";
+
+        char filters[512];
+        int pos = 0;
+        int opt;
+
+#define add_filter(Name) \
+        pos += (opt = 0, snprintf(filters + pos, sizeof(filters) - pos, \
+                                  "%s%s", pos ? "," : "", Name))
+
+#define add_option(Fmt, ...) \
+        pos += snprintf(filters + pos, sizeof(filters) - pos, \
+                        "%s" Fmt, opt++ ? ":" : "=", ##__VA_ARGS__)
+
+        if (!hw_in && hw_out) {
+            if (pic_quadra_out) {
+                if (need_deint) {
+                    add_filter("yadif");
+                    add_option("deint=interlaced");
+                }
+            } else {
+                add_filter("scale");
+                add_option("interl=-1");
+                add_filter("format");
+                add_option("%s", pix_fmt_semiplanar_in);
+            }
+            add_filter("hwupload");
+        }
+        if (pic_qsv_in || pic_qsv_out) {
+            if (pic_vaapi_in) {
+                add_filter("hwmap");
+                add_option("derive_device=qsv");
+                add_filter("format");
+                add_option("qsv");
+            }
+            add_filter("vpp_qsv");
+            if (need_deint)
+                add_option("deinterlace=%s",
+                           upipe_ffmt->vpp_qsv_deinterlace ?: "advanced");
+            if (need_scale) {
+                add_option("width=%"PRIu64, hsize_out);
+                add_option("height=%"PRIu64, vsize_out);
+            }
+            add_option("scale_mode=%s", upipe_ffmt->vpp_qsv_scale_mode ?: "hq");
+            if (need_format)
+                add_option("format=%s", pix_fmt_sw);
+            if (need_range)
+                add_option("out_range=%s", range_out);
+            if (color_matrix)
+                add_option("out_color_matrix=%s", color_matrix);
+            if (color_primaries)
+                add_option("out_color_primaries=%s", color_primaries);
+            if (color_transfer)
+                add_option("out_color_transfer=%s", color_transfer);
+            add_option("tonemap=%d", need_tonemap ? 1 : 0);
+            add_option("async_depth=0");
+        } else if (hw_out) {
+            if (need_deint && !pic_quadra_out) {
+                add_filter("deinterlace_vaapi");
+                add_option("auto=1");
+                if (upipe_ffmt->deinterlace_vaapi_mode)
+                    add_option("mode=%s", upipe_ffmt->deinterlace_vaapi_mode);
+            }
+            if (need_scale || need_format || need_range) {
+                if (pic_quadra_out) {
+                    add_filter("ni_quadra_scale");
+                    if (need_scale)
+                        add_option("size=%" PRIu64 "x%" PRIu64, hsize_out,
+                                   vsize_out);
+                    if (upipe_ffmt->ni_quadra_scale_filterblit)
+                        add_option("filterblit=%s",
+                                   upipe_ffmt->ni_quadra_scale_filterblit);
+                    else
+                        add_option("autoselect=1");
+                } else {
+                    add_filter("scale_vaapi");
+                    add_option("mode=%s", upipe_ffmt->scale_vaapi_mode ?: "hq");
+                    if (need_scale) {
+                        add_option("w=%"PRIu64, hsize_out);
+                        add_option("h=%"PRIu64, vsize_out);
+                    }
+                    if (need_range)
+                        add_option("out_range=%s", range_out);
+                    if (!need_tonemap) {
+                        if (color_primaries)
+                            add_option("out_color_primaries=%s",
+                                       color_primaries);
+                        if (color_transfer)
+                            add_option("out_color_transfer=%s", color_transfer);
+                    }
+                }
+                if (!(need_tonemap && (pic_vaapi_in || pic_vaapi_out))) {
+                    if (color_matrix)
+                        add_option("out_color_matrix=%s", color_matrix);
+                    if (need_format)
+                        add_option("format=%s", pix_fmt_sw);
+                }
+            }
+            if (need_tonemap && (pic_vaapi_in || pic_vaapi_out)) {
+                add_filter("tonemap_vaapi");
+                add_option("format=%s", pix_fmt_sw);
+                if (color_matrix)
+                    add_option("matrix=%s", color_matrix);
+                if (color_primaries)
+                    add_option("primaries=%s", color_primaries);
+                if (color_transfer)
+                    add_option("transfer=%s", color_transfer);
+            }
+        } else {
+            if (need_tonemap) {
+                add_filter("zscale");
+                if (need_scale) {
+                    add_option("width=%"PRIu64, hsize_out);
+                    add_option("height=%"PRIu64, vsize_out);
+                    add_option("filter=%s",
+                               upipe_ffmt->zscale_filter ?: "bicubic");
+                }
+                add_option("npl=100");
+                add_option("transfer=linear");
+                add_option("primaries=%s", color_primaries);
+                add_filter("tonemap");
+                add_option("tonemap=%s",
+                           upipe_ffmt->tonemap_tonemap ?: "hable");
+                if (upipe_ffmt->tonemap_param)
+                    add_option("param=%s", upipe_ffmt->tonemap_param);
+                if (upipe_ffmt->tonemap_desat)
+                    add_option("desat=%s", upipe_ffmt->tonemap_desat);
+                add_filter("zscale");
+                add_option("range=%s", range_out);
+                add_option("transfer=%s", color_transfer);
+                add_option("matrix=%s", color_matrix);
+                add_filter("format");
+                add_option("%s", pix_fmt_sw);
+            } else if (need_scale || need_format || need_range) {
+                add_filter("scale");
+                add_option("interl=-1");
+                if (need_scale) {
+                    add_option("w=%"PRIu64, hsize_out);
+                    add_option("h=%"PRIu64, vsize_out);
+                }
+                if (need_range)
+                    add_option("out_range=%s", range_out);
+                if (color_matrix)
+                    add_option("out_color_matrix=%s", color_matrix);
+                if (color_primaries)
+                    add_option("out_primaries=%s", color_primaries);
+                if (color_transfer)
+                    add_option("out_transfer=%s", color_transfer);
+            }
+            if (need_deint) {
+                add_filter("yadif");
+                add_option("deint=interlaced");
+            }
+        }
+        if (hw_in && !hw_out) {
+            add_filter("hwmap");
+            add_option("mode=read+direct");
+            add_filter("format");
+            add_option("%s", pix_fmt_semiplanar_out);
+            if (pix_fmt != NULL && strcmp(pix_fmt, pix_fmt_semiplanar_out)) {
+                add_filter("scale");
+                add_option("interl=-1");
+                add_filter("format");
+                add_option("%s", pix_fmt);
+            }
+        }
+
+#undef add_filter
+#undef add_option
+
+        if (pos >= sizeof(filters)) {
+            upipe_err(upipe, "filtergraph too long");
+            upipe_release(last_inner);
+            return UBASE_ERR_INVALID;
+        }
+
+        struct upipe *avfilt = upipe_void_alloc(
+            ffmt_mgr->avfilter_mgr,
+            uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
+                             UPROBE_LOG_VERBOSE, "avfilt"));
+        if (avfilt == NULL) {
+            upipe_warn_va(upipe, "couldn't allocate deinterlace");
+            upipe_release(last_inner);
+            return UBASE_ERR_ALLOC;
+        }
+        if (upipe_ffmt->hw_type != NULL &&
+            !ubase_check(upipe_avfilt_set_hw_config(
+                avfilt, upipe_ffmt->hw_type, upipe_ffmt->hw_device)))
+            upipe_err(upipe, "cannot set filters hw config");
+        if (!ubase_check(upipe_avfilt_set_filters_desc(avfilt, filters)))
+            upipe_err(upipe, "cannot set filters desc");
+
+        upipe_ffmt_push(upipe, &last_inner, avfilt);
+
+        need_deint = false;
+        need_sws = false;
+    }
+
+    if (need_deint) {
+        struct uref *flow_def_deint = uref_dup(flow_def_provided);
+        if (unlikely(!flow_def_deint)) {
+            upipe_warn_va(upipe, "couldn't allocate flow format");
+            upipe_release(last_inner);
+            return UBASE_ERR_ALLOC;
+        }
+        uref_pic_set_progressive(flow_def_deint, true);
+        struct upipe *input = upipe_flow_alloc(
+            ffmt_mgr->deint_mgr,
+            uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->proxy_probe),
+                             UPROBE_LOG_VERBOSE, "deint"),
+            flow_def_deint);
+        uref_free(flow_def_deint);
+        if (unlikely(input == NULL)) {
+            input = upipe_void_alloc(
+                ffmt_mgr->deint_mgr,
+                uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->proxy_probe),
+                                 UPROBE_LOG_VERBOSE, "deint"));
+            if (unlikely(input == NULL)) {
+                upipe_warn_va(upipe, "couldn't allocate deinterlace");
+                upipe_release(last_inner);
+                return UBASE_ERR_ALLOC;
+            }
+        }
+        upipe_ffmt_push(upipe, &last_inner, input);
+    }
+
+    if (need_interlace) {
+        struct upipe *input = upipe_flow_alloc(
+            ffmt_mgr->interlace_mgr,
+            uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->proxy_probe),
+                                UPROBE_LOG_VERBOSE, "interlace"),
+            flow_def_provided);
+        if (unlikely(input == NULL)) {
+            upipe_warn_va(upipe, "couldn't allocate interlace");
+            upipe_release(last_inner);
+            return UBASE_ERR_ALLOC;
+        }
+        upipe_ffmt_push(upipe, &last_inner, input);
+    }
+
+    if (need_sws) {
+        struct upipe *sws = upipe_flow_alloc(ffmt_mgr->sws_mgr,
+                uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
+                                    UPROBE_LOG_VERBOSE, "sws"),
+                flow_def_provided);
+        if (unlikely(sws == NULL)) {
+            upipe_warn_va(upipe, "couldn't allocate swscale");
+            udict_dump(flow_def_provided->udict, upipe->uprobe);
+            upipe_release(last_inner);
+            return UBASE_ERR_ALLOC;
+        }
+        if (upipe_ffmt->sws_flags)
+            upipe_sws_set_flags(sws, upipe_ffmt->sws_flags);
+        upipe_ffmt_push(upipe, &last_inner, sws);
+    }
+    upipe_release(last_inner);
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This builds the inner pipeline for sound flow
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_def_input input flow definition
+ * @param flow_def_provided output flow definition
+ * @return an error code
+ */
+static int upipe_ffmt_build_sound(struct upipe *upipe,
+                                  struct uref *flow_def_input,
+                                  struct uref *flow_def_provided)
+{
+    struct upipe_ffmt_mgr *ffmt_mgr = upipe_ffmt_mgr_from_upipe_mgr(upipe->mgr);
+    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
+
+    if (!uref_sound_flow_compare_format(flow_def_input, flow_def_provided) ||
+        uref_sound_flow_cmp_rate(flow_def_input, flow_def_provided)) {
+        struct upipe *input = upipe_flow_alloc(
+            ffmt_mgr->swr_mgr,
+            uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
+                             UPROBE_LOG_VERBOSE, "swr"),
+            flow_def_provided);
+        if (unlikely(input == NULL)) {
+            upipe_warn_va(upipe, "couldn't allocate swresample");
+            udict_dump(flow_def_provided->udict, upipe->uprobe);
+            return UBASE_ERR_ALLOC;
+        }
+        upipe_ffmt_store_bin_output(upipe, input);
+        upipe_ffmt_store_bin_input(upipe, upipe_use(input));
+    }
+    return UBASE_ERR_NONE;
+}
+
+/** @internal @This builds the inner pipeline
+ *
+ * @param upipe description structure of the pipe
+ * @param flow_def_input input flow definition
+ * @param flow_def_provided output flow definition
+ * @return an error code
+ */
+static int upipe_ffmt_build(struct upipe *upipe, struct uref *flow_def_input,
+                            struct uref *flow_def_provided)
+{
+    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
+    const char *def;
+    int err;
+
+    UBASE_RETURN(uref_flow_get_def(flow_def_input, &def));
+
+    if (!ubase_ncmp(def, "pic."))
+        err = upipe_ffmt_build_pic(upipe, flow_def_input, flow_def_provided);
+    else /* sound. */
+        err = upipe_ffmt_build_sound(upipe, flow_def_input, flow_def_provided);
+
+    if (unlikely(!ubase_check(err)))
+        return err;
+
+    if (!upipe_ffmt->first_inner && upipe_ffmt->last_inner)
+        return UBASE_ERR_INVALID;
+    else if (!upipe_ffmt->first_inner || !upipe_ffmt->last_inner) {
+        struct upipe_mgr *setflowdef_mgr = upipe_setflowdef_mgr_alloc();
+        struct upipe *input = upipe_void_alloc(
+            setflowdef_mgr,
+            uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
+                             UPROBE_LOG_VERBOSE, "setflowdef"));
+        upipe_mgr_release(setflowdef_mgr);
+        if (unlikely(input == NULL)) {
+            upipe_warn_va(upipe, "couldn't allocate setflowdef");
+            return UBASE_ERR_ALLOC;
+        }
+        upipe_setflowdef_set_dict(input, flow_def_provided);
+        if (!upipe_ffmt->first_inner)
+            upipe_ffmt_store_bin_input(upipe, upipe_use(input));
+        else {
+            struct upipe *last = upipe_ffmt->first_inner;
+            struct upipe *output = NULL;
+            while (ubase_check(upipe_get_output(last, &output)) && output)
+                last = output;
+            upipe_set_output(last, input);
+        }
+        upipe_ffmt_store_bin_output(upipe, input);
+    }
+
+    return upipe_set_flow_def(upipe_ffmt->first_inner, flow_def_input);
+}
+
+/** @internal @This reconfigures the inner pipeline.
+ *
+ * @param upipe description structure of the pipe
+ * @return an error code
+ */
+static int upipe_ffmt_reconfigure(struct upipe *upipe)
+{
+    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
+    struct uref *flow_def_input = upipe_ffmt->flow_def_input;
+    struct uref *flow_def_provided = upipe_ffmt->flow_def_provided;
+    int err = UBASE_ERR_ALLOC;
+
+    if (unlikely(!flow_def_input || !flow_def_provided))
+        return UBASE_ERR_INVALID;
+
+    flow_def_input = uref_dup(flow_def_input);
+    flow_def_provided = uref_dup(flow_def_provided);
+    if (likely(flow_def_input && flow_def_provided))
+        err = upipe_ffmt_build(upipe, flow_def_input, flow_def_provided);
+
+    if (unlikely(!ubase_check(err))) {
+        upipe_ffmt_store_bin_output(upipe, NULL);
+        upipe_ffmt_store_bin_input(upipe, NULL);
+    }
+    uref_free(flow_def_provided);
+    uref_free(flow_def_input);
+    return err;
+}
+
 /** @internal @This receives the result of a flow format request.
  *
  * @param upipe description structure of the pipe
@@ -332,9 +894,6 @@ static void upipe_ffmt_push(struct upipe *upipe, struct upipe **last_inner,
 static int upipe_ffmt_check_flow_format(struct upipe *upipe,
                                         struct uref *flow_def_dup)
 {
-    struct upipe_ffmt_mgr *ffmt_mgr = upipe_ffmt_mgr_from_upipe_mgr(upipe->mgr);
-    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
-    struct uref *flow_def_wanted = upipe_ffmt->flow_def_wanted;
     if (flow_def_dup == NULL)
         return UBASE_ERR_INVALID;
 
@@ -342,522 +901,9 @@ static int upipe_ffmt_check_flow_format(struct upipe *upipe,
         uref_free(flow_def_dup);
         return UBASE_ERR_NONE;
     }
-    upipe_ffmt_store_flow_def_check(upipe, uref_dup(flow_def_dup));
+    upipe_ffmt_store_flow_def_check(upipe, flow_def_dup);
 
-    struct uref *flow_def = uref_dup(upipe_ffmt->flow_def_input);
-    UBASE_ALLOC_RETURN(flow_def)
-    const char *def;
-    UBASE_RETURN(uref_flow_get_def(flow_def, &def))
-
-    if (!ubase_ncmp(def, "pic.")) {
-        /* check aspect ratio */
-        struct urational sar, dar;
-        if (ubase_check(uref_pic_flow_get_sar(flow_def_wanted, &sar)) &&
-            sar.num) {
-            struct urational input_sar;
-            uint64_t hsize;
-            if (!ubase_check(uref_pic_flow_get_hsize(flow_def_wanted, &hsize)) &&
-                ubase_check(uref_pic_flow_get_hsize(flow_def, &hsize)) &&
-                ubase_check(uref_pic_flow_get_sar(flow_def, &input_sar)) &&
-                input_sar.num) {
-                struct urational sar_factor =
-                    urational_divide(&input_sar, &sar);
-                hsize = (hsize * sar_factor.num / sar_factor.den / 2) * 2;
-                uref_pic_flow_set_hsize(flow_def_dup, hsize);
-                uref_pic_flow_set_hsize_visible(flow_def_dup, hsize);
-            }
-            uref_pic_flow_set_sar(flow_def, sar);
-        } else if (ubase_check(uref_pic_flow_get_dar(flow_def_wanted, &dar))) {
-            bool overscan;
-            if (ubase_check(uref_pic_flow_get_overscan(
-                            flow_def_wanted, &overscan)))
-                uref_pic_flow_set_overscan(flow_def, overscan);
-            uref_pic_flow_infer_sar(flow_def, dar);
-        }
-
-        /* delete sar and visible sizes to let sws set it */
-        if (!ubase_check(uref_pic_flow_get_sar(flow_def_wanted, NULL)) ||
-            !ubase_check(uref_pic_flow_get_hsize(flow_def_wanted, NULL)) ||
-            !ubase_check(uref_pic_flow_get_vsize(flow_def_wanted, NULL)))
-            uref_pic_flow_delete_sar(flow_def_dup);
-        uref_pic_flow_delete_hsize_visible(flow_def_dup);
-        uref_pic_flow_delete_vsize_visible(flow_def_dup);
-
-        const char *surface_type_in;
-        if (!ubase_check(uref_pic_flow_get_surface_type(flow_def,
-                                                        &surface_type_in)))
-            surface_type_in = "";
-
-        const char *surface_type_out;
-        if (!ubase_check(uref_pic_flow_get_surface_type(flow_def_dup,
-                                                        &surface_type_out)))
-            surface_type_out = "";
-
-        bool need_deint = ffmt_mgr->deint_mgr &&
-            !uref_pic_check_progressive(flow_def) &&
-            uref_pic_check_progressive(flow_def_dup);
-        bool need_interlace = ffmt_mgr->interlace_mgr &&
-            uref_pic_check_progressive(flow_def) &&
-            !uref_pic_check_progressive(flow_def_dup);
-        if (ffmt_mgr->deint_mgr && ffmt_mgr->interlace_mgr &&
-            !uref_pic_check_progressive(flow_def) &&
-            !uref_pic_check_progressive(flow_def_dup) &&
-            ubase_check(uref_pic_get_tff(flow_def_dup, NULL)) &&
-            ((uref_pic_check_tff(flow_def) &&
-              !uref_pic_check_tff(flow_def_dup)) ||
-             (!uref_pic_check_tff(flow_def) &&
-              uref_pic_check_tff(flow_def_dup)))) {
-            need_deint = true;
-            need_interlace = true;
-        }
-        bool need_scale =
-            uref_pic_flow_cmp_hsize(flow_def, flow_def_dup) ||
-            uref_pic_flow_cmp_vsize(flow_def, flow_def_dup);
-        bool need_range = uref_pic_flow_cmp_full_range(flow_def, flow_def_dup);
-        bool need_format =
-            !uref_pic_flow_compare_format(flow_def, flow_def_dup);
-        bool need_sws = ffmt_mgr->sws_mgr &&
-            (need_scale || need_format || need_range);
-        bool pic_vaapi_in = !strcmp(surface_type_in, "av.vaapi");
-        bool pic_vaapi_out = !strcmp(surface_type_out, "av.vaapi");
-        bool pic_qsv_in = !strcmp(surface_type_in, "av.qsv");
-        bool pic_qsv_out = !strcmp(surface_type_out, "av.qsv");
-        bool pic_quadra_in = !strcmp(surface_type_in, "av.ni_quadra");
-        bool pic_quadra_out = !strcmp(surface_type_out, "av.ni_quadra");
-        bool hw_in = pic_vaapi_in || pic_qsv_in || pic_quadra_in;
-        bool hw_out = pic_vaapi_out || pic_qsv_out || pic_quadra_out;
-        bool hw = hw_in || hw_out;
-        int bit_depth_in = 0;
-        int bit_depth_out = 0;
-        uref_pic_flow_get_bit_depth(flow_def, &bit_depth_in);
-        uref_pic_flow_get_bit_depth(flow_def_dup, &bit_depth_out);
-        bool need_hw_transfer = (hw_in && !hw_out) || (!hw_in && hw_out);
-        bool need_derive = pic_vaapi_in && pic_qsv_out;
-        bool need_tonemap = ubase_check(uref_pic_flow_check_hdr10(flow_def)) &&
-            ubase_check(uref_pic_flow_check_sdr(flow_def_dup));
-        bool need_avfilter = ffmt_mgr->avfilter_mgr && (hw || need_tonemap) &&
-            (need_deint || need_scale || need_format || need_hw_transfer ||
-             need_derive || need_range || need_tonemap);
-
-        struct upipe *last_inner = NULL;
-
-        if (need_avfilter) {
-            const char *range_in =
-                ubase_check(uref_pic_flow_get_full_range(flow_def)) ?
-                "full" : "limited";
-            const char *range_out =
-                ubase_check(uref_pic_flow_get_full_range(flow_def_dup)) ?
-                "full" : "limited";
-            if (need_format) {
-                const char *pix_fmt_in = "unknown";
-                const char *pix_fmt_out = "unknown";
-                upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
-                                                 flow_def, &pix_fmt_in,
-                                                 true);
-                upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
-                                                 flow_def_dup, &pix_fmt_out,
-                                                 true);
-                upipe_notice_va(upipe, "need format conversion %s → %s",
-                                pix_fmt_in, pix_fmt_out);
-            }
-            if (need_hw_transfer) {
-                upipe_notice_va(upipe, "need transfer %s → %s",
-                                hw_in ? "hw" : "sw",
-                                hw_out ? "hw" : "sw");
-            }
-            if (need_scale) {
-                uint64_t hsize_in = 0, vsize_in = 0;
-                uint64_t hsize_out = 0, vsize_out = 0;
-                uref_pic_flow_get_hsize(flow_def, &hsize_in);
-                uref_pic_flow_get_vsize(flow_def, &vsize_in);
-                uref_pic_flow_get_hsize(flow_def_dup, &hsize_out);
-                uref_pic_flow_get_vsize(flow_def_dup, &vsize_out);
-                upipe_notice_va(upipe, "need scale %" PRIu64 "x%" PRIu64
-                                " → %" PRIu64 "x%" PRIu64,
-                                hsize_in, vsize_in, hsize_out, vsize_out);
-            }
-            if (need_range)
-                upipe_notice_va(upipe, "need range conversion %s → %s",
-                                range_in, range_out);
-            if (need_derive)
-                upipe_notice(upipe, "need hw surface mapping vaapi → qsv");
-            if (need_deint)
-                upipe_notice(upipe, "need deinterlace");
-            if (need_tonemap)
-                upipe_notice(upipe, "need tonemap hdr10 → sdr");
-
-            uint64_t hsize = 0, vsize = 0;
-            uref_pic_flow_get_hsize(flow_def_dup, &hsize);
-            uref_pic_flow_get_vsize(flow_def_dup, &vsize);
-
-            const char *pix_fmt = NULL;
-            upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
-                                             flow_def_dup, &pix_fmt, false);
-            const char *pix_fmt_sw = NULL;
-            upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
-                                             flow_def_dup, &pix_fmt_sw, true);
-
-            int val;
-
-            const char *color_matrix = NULL;
-            UBASE_RETURN(uref_pic_flow_get_matrix_coefficients_val(
-                    flow_def_dup, &val))
-            if (val != 2)
-                UBASE_RETURN(upipe_avfilt_mgr_get_color_space_name(
-                        ffmt_mgr->avfilter_mgr, val, &color_matrix))
-
-            const char *color_primaries = NULL;
-            UBASE_RETURN(uref_pic_flow_get_colour_primaries_val(
-                    flow_def_dup, &val))
-            if (val != 2)
-                UBASE_RETURN(upipe_avfilt_mgr_get_color_primaries_name(
-                        ffmt_mgr->avfilter_mgr, val, &color_primaries))
-
-            const char *color_transfer = NULL;
-            UBASE_RETURN(uref_pic_flow_get_transfer_characteristics_val(
-                    flow_def_dup, &val))
-            if (val != 2)
-                UBASE_RETURN(upipe_avfilt_mgr_get_color_transfer_name(
-                        ffmt_mgr->avfilter_mgr, val, &color_transfer))
-
-            bool in_10bit = bit_depth_in == 10;
-            bool out_10bit = bit_depth_out == 10;
-            const char *pix_fmt_semiplanar_in = in_10bit ? "p010le" : "nv12";
-            const char *pix_fmt_semiplanar_out = out_10bit ? "p010le" : "nv12";
-
-            char filters[512];
-            int pos = 0;
-            int opt;
-
-#define add_filter(Name) \
-            pos += (opt = 0, snprintf(filters + pos, sizeof(filters) - pos, \
-                                      "%s%s", pos ? "," : "", Name))
-
-#define add_option(Fmt, ...) \
-            pos += snprintf(filters + pos, sizeof(filters) - pos, \
-                            "%s" Fmt, opt++ ? ":" : "=", ##__VA_ARGS__)
-
-            if (!hw_in && hw_out) {
-                if (pic_quadra_out) {
-                    if (need_deint) {
-                        add_filter("yadif");
-                        add_option("deint=interlaced");
-                    }
-                } else {
-                    add_filter("scale");
-                    add_option("interl=-1");
-                    add_filter("format");
-                    add_option("%s", pix_fmt_semiplanar_in);
-                }
-                add_filter("hwupload");
-            }
-            if (pic_qsv_in || pic_qsv_out) {
-                if (pic_vaapi_in) {
-                    add_filter("hwmap");
-                    add_option("derive_device=qsv");
-                    add_filter("format");
-                    add_option("qsv");
-                }
-                add_filter("vpp_qsv");
-                if (need_deint)
-                    add_option("deinterlace=%s",
-                               upipe_ffmt->vpp_qsv_deinterlace ?: "advanced");
-                if (need_scale) {
-                    add_option("width=%"PRIu64, hsize);
-                    add_option("height=%"PRIu64, vsize);
-                }
-                add_option("scale_mode=%s",
-                           upipe_ffmt->vpp_qsv_scale_mode ?: "hq");
-                if (need_format)
-                    add_option("format=%s", pix_fmt_sw);
-                if (need_range)
-                    add_option("out_range=%s", range_out);
-                if (color_matrix)
-                    add_option("out_color_matrix=%s", color_matrix);
-                if (color_primaries)
-                    add_option("out_color_primaries=%s", color_primaries);
-                if (color_transfer)
-                    add_option("out_color_transfer=%s", color_transfer);
-                add_option("tonemap=%d", need_tonemap ? 1 : 0);
-                add_option("async_depth=0");
-            } else if (hw_out) {
-                if (need_deint && !pic_quadra_out) {
-                    add_filter("deinterlace_vaapi");
-                    add_option("auto=1");
-                    if (upipe_ffmt->deinterlace_vaapi_mode)
-                        add_option("mode=%s",
-                                   upipe_ffmt->deinterlace_vaapi_mode);
-                }
-                if (need_scale || need_format || need_range) {
-                    if (pic_quadra_out) {
-                        add_filter("ni_quadra_scale");
-                        if (need_scale)
-                            add_option("size=%"PRIu64"x%"PRIu64, hsize, vsize);
-                        if (upipe_ffmt->ni_quadra_scale_filterblit)
-                            add_option("filterblit=%s",
-                                       upipe_ffmt->ni_quadra_scale_filterblit);
-                        else
-                            add_option("autoselect=1");
-                    } else {
-                        add_filter("scale_vaapi");
-                        add_option("mode=%s",
-                                   upipe_ffmt->scale_vaapi_mode ?: "hq");
-                        if (need_scale) {
-                            add_option("w=%"PRIu64, hsize);
-                            add_option("h=%"PRIu64, vsize);
-                        }
-                        if (need_range)
-                            add_option("out_range=%s", range_out);
-                        if (!need_tonemap) {
-                            if (color_primaries)
-                                add_option("out_color_primaries=%s",
-                                           color_primaries);
-                            if (color_transfer)
-                                add_option("out_color_transfer=%s",
-                                           color_transfer);
-                        }
-                    }
-                    if (!(need_tonemap && (pic_vaapi_in || pic_vaapi_out))) {
-                        if (color_matrix)
-                            add_option("out_color_matrix=%s", color_matrix);
-                        if (need_format)
-                            add_option("format=%s", pix_fmt_sw);
-                    }
-                }
-                if (need_tonemap && (pic_vaapi_in || pic_vaapi_out)) {
-                    add_filter("tonemap_vaapi");
-                    add_option("format=%s", pix_fmt_sw);
-                    if (color_matrix)
-                        add_option("matrix=%s", color_matrix);
-                    if (color_primaries)
-                        add_option("primaries=%s", color_primaries);
-                    if (color_transfer)
-                        add_option("transfer=%s", color_transfer);
-                }
-            } else {
-                if (need_tonemap) {
-                    add_filter("zscale");
-                    if (need_scale) {
-                        add_option("width=%"PRIu64, hsize);
-                        add_option("height=%"PRIu64, vsize);
-                        add_option("filter=%s",
-                                   upipe_ffmt->zscale_filter ?: "bicubic");
-                    }
-                    add_option("npl=100");
-                    add_option("transfer=linear");
-                    add_option("primaries=%s", color_primaries);
-                    add_filter("tonemap");
-                    add_option("tonemap=%s",
-                               upipe_ffmt->tonemap_tonemap ?: "hable");
-                    if (upipe_ffmt->tonemap_param)
-                        add_option("param=%s", upipe_ffmt->tonemap_param);
-                    if (upipe_ffmt->tonemap_desat)
-                        add_option("desat=%s", upipe_ffmt->tonemap_desat);
-                    add_filter("zscale");
-                    add_option("range=%s", range_out);
-                    add_option("transfer=%s", color_transfer);
-                    add_option("matrix=%s", color_matrix);
-                    add_filter("format");
-                    add_option("%s", pix_fmt_sw);
-                } else if (need_scale || need_format || need_range) {
-                    add_filter("scale");
-                    add_option("interl=-1");
-                    if (need_scale) {
-                        add_option("w=%"PRIu64, hsize);
-                        add_option("h=%"PRIu64, vsize);
-                    }
-                    if (need_range)
-                        add_option("out_range=%s", range_out);
-                    if (color_matrix)
-                        add_option("out_color_matrix=%s", color_matrix);
-                    if (color_primaries)
-                        add_option("out_primaries=%s", color_primaries);
-                    if (color_transfer)
-                        add_option("out_transfer=%s", color_transfer);
-                }
-                if (need_deint) {
-                    add_filter("yadif");
-                    add_option("deint=interlaced");
-                }
-            }
-            if (hw_in && !hw_out) {
-                add_filter("hwmap");
-                add_option("mode=read+direct");
-                add_filter("format");
-                add_option("%s", pix_fmt_semiplanar_out);
-                if (pix_fmt != NULL && strcmp(pix_fmt, pix_fmt_semiplanar_out)) {
-                    add_filter("scale");
-                    add_option("interl=-1");
-                    add_filter("format");
-                    add_option("%s", pix_fmt);
-                }
-            }
-
-#undef add_filter
-#undef add_option
-
-            if (pos >= sizeof(filters)) {
-                upipe_err(upipe, "filtergraph too long");
-                return UBASE_ERR_INVALID;
-            }
-
-            struct upipe *avfilt = upipe_void_alloc(
-                ffmt_mgr->avfilter_mgr,
-                uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
-                                 UPROBE_LOG_VERBOSE, "avfilt"));
-            if (avfilt == NULL)
-                upipe_warn_va(upipe, "couldn't allocate deinterlace");
-            else {
-                if (upipe_ffmt->hw_type != NULL &&
-                    !ubase_check(upipe_avfilt_set_hw_config(
-                            avfilt, upipe_ffmt->hw_type,
-                            upipe_ffmt->hw_device)))
-                    upipe_err(upipe, "cannot set filters hw config");
-                if (!ubase_check(upipe_avfilt_set_filters_desc(
-                            avfilt, filters)))
-                    upipe_err(upipe, "cannot set filters desc");
-
-                upipe_ffmt_push(upipe, &last_inner, avfilt);
-            }
-
-            need_deint = false;
-            need_sws = false;
-        }
-
-        if (need_deint) {
-            upipe_notice(upipe, "need deinterlace");
-            struct uref *flow_def_deint = uref_dup(flow_def_dup);
-            uref_pic_set_progressive(flow_def_deint, true);
-            struct upipe *input = upipe_flow_alloc(
-                ffmt_mgr->deint_mgr,
-                uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->proxy_probe),
-                                 UPROBE_LOG_VERBOSE, "deint"),
-                flow_def_deint);
-            if (unlikely(input == NULL)) {
-                input = upipe_void_alloc(
-                    ffmt_mgr->deint_mgr,
-                    uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->proxy_probe),
-                                     UPROBE_LOG_VERBOSE, "deint"));
-                if (unlikely(input == NULL))
-                    upipe_warn_va(upipe, "couldn't allocate deinterlace");
-            }
-            if (likely(input))
-                upipe_ffmt_push(upipe, &last_inner, input);
-            uref_free(flow_def_deint);
-        }
-
-        if (need_interlace) {
-            upipe_notice(upipe, "need interlace");
-            struct upipe *input = upipe_flow_alloc(
-                ffmt_mgr->interlace_mgr,
-                uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->proxy_probe),
-                                 UPROBE_LOG_VERBOSE, "interlace"),
-                flow_def_dup);
-            if (unlikely(input == NULL))
-                upipe_warn_va(upipe, "couldn't allocate interlace");
-            else
-                upipe_ffmt_push(upipe, &last_inner, input);
-        }
-
-        if (need_sws) {
-            if (need_format) {
-                const struct uref_pic_flow_format *from =
-                    uref_pic_flow_get_format(flow_def);
-                const struct uref_pic_flow_format *to =
-                    uref_pic_flow_get_format(flow_def_dup);
-                upipe_notice_va(upipe, "need format conversion %s → %s",
-                                from ? from->name : "unknown",
-                                to ? to->name : "unknown");
-            }
-            if (need_scale) {
-                uint64_t hsize_in = 0, vsize_in = 0;
-                uint64_t hsize_out = 0, vsize_out = 0;
-                uref_pic_flow_get_hsize(flow_def, &hsize_in);
-                uref_pic_flow_get_vsize(flow_def, &vsize_in);
-                uref_pic_flow_get_hsize(flow_def_dup, &hsize_out);
-                uref_pic_flow_get_vsize(flow_def_dup, &vsize_out);
-                upipe_notice_va(upipe, "need scale %" PRIu64 "x%" PRIu64
-                                " → %" PRIu64 "x%" PRIu64,
-                                hsize_in, vsize_in, hsize_out, vsize_out);
-            }
-            if (need_range) {
-                const char *from =
-                    ubase_check(uref_pic_flow_get_full_range(flow_def)) ?
-                    "full" : "limited";
-                const char *to =
-                    ubase_check(uref_pic_flow_get_full_range(flow_def_dup)) ?
-                    "full" : "limited";
-                upipe_notice_va(upipe, "need range conversion %s → %s",
-                                from, to);
-            }
-            struct upipe *sws = upipe_flow_alloc(ffmt_mgr->sws_mgr,
-                    uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
-                                     UPROBE_LOG_VERBOSE, "sws"),
-                    flow_def_dup);
-            if (unlikely(sws == NULL)) {
-                upipe_warn_va(upipe, "couldn't allocate swscale");
-                udict_dump(flow_def_dup->udict, upipe->uprobe);
-            } else {
-                if (upipe_ffmt->sws_flags)
-                    upipe_sws_set_flags(sws, upipe_ffmt->sws_flags);
-
-                upipe_ffmt_push(upipe, &last_inner, sws);
-            }
-        } else {
-            struct upipe_mgr *setflowdef_mgr = upipe_setflowdef_mgr_alloc();
-            struct upipe *setflowdef = upipe_void_alloc(setflowdef_mgr,
-                    uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
-                                     UPROBE_LOG_VERBOSE, "setflowdef"));
-            upipe_mgr_release(setflowdef_mgr);
-            if (unlikely(setflowdef == NULL)) {
-                upipe_warn_va(upipe, "couldn't allocate setflowdef");
-            } else {
-                upipe_setflowdef_set_dict(setflowdef, flow_def_dup);
-                upipe_ffmt_push(upipe, &last_inner, setflowdef);
-            }
-        }
-        upipe_ffmt_store_bin_output(upipe, last_inner);
-
-    } else { /* sound. */
-        if (!uref_sound_flow_compare_format(flow_def, flow_def_dup) ||
-            uref_sound_flow_cmp_rate(flow_def, flow_def_dup)) {
-            struct upipe *input = upipe_flow_alloc(ffmt_mgr->swr_mgr,
-                    uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
-                                     UPROBE_LOG_VERBOSE, "swr"),
-                    flow_def_dup);
-            if (unlikely(input == NULL)) {
-                upipe_warn_va(upipe, "couldn't allocate swresample");
-                udict_dump(flow_def_dup->udict, upipe->uprobe);
-            } else {
-                upipe_ffmt_store_bin_output(upipe, input);
-                upipe_ffmt_store_bin_input(upipe, upipe_use(input));
-            }
-        }
-    }
-
-    if (upipe_ffmt->first_inner == NULL) {
-        struct upipe_mgr *setflowdef_mgr = upipe_setflowdef_mgr_alloc();
-        struct upipe *input = upipe_void_alloc(setflowdef_mgr,
-                uprobe_pfx_alloc(uprobe_use(&upipe_ffmt->last_inner_probe),
-                                 UPROBE_LOG_VERBOSE, "setflowdef"));
-        upipe_mgr_release(setflowdef_mgr);
-        if (unlikely(input == NULL))
-            upipe_warn_va(upipe, "couldn't allocate setflowdef");
-        else {
-            upipe_setflowdef_set_dict(input, flow_def_dup);
-            upipe_ffmt_store_bin_output(upipe, input);
-            upipe_ffmt_store_bin_input(upipe, upipe_use(input));
-        }
-    }
-    uref_free(flow_def_dup);
-
-    int err = upipe_set_flow_def(upipe_ffmt->first_inner, flow_def);
-    uref_free(flow_def);
-
-    if (!ubase_check(err)) {
-        upipe_ffmt_store_bin_input(upipe, NULL);
-        upipe_ffmt_store_bin_output(upipe, NULL);
-    }
+    int err = upipe_ffmt_reconfigure(upipe);
 
     bool was_buffered = !upipe_ffmt_check_input(upipe);
     upipe_ffmt_output_input(upipe);
