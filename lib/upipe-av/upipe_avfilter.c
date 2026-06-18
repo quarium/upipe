@@ -1148,17 +1148,20 @@ static void upipe_avfilt_sub_input(struct upipe *upipe, struct uref *uref,
         if (ubase_check(ubuf_av_get_avframe(uref->ubuf, frame))) {
             if (frame->hw_frames_ctx != NULL) {
                 av_buffer_unref(&upipe_avfilt_sub->hw_frames_ctx);
-                upipe_avfilt_sub->hw_frames_ctx = av_buffer_ref(frame->hw_frames_ctx);
+                upipe_avfilt_sub->hw_frames_ctx =
+                    av_buffer_ref(frame->hw_frames_ctx);
             }
         }
         av_frame_free(&frame);
         upipe_avfilt_reset(upipe_avfilt_to_upipe(upipe_avfilt));
 
-        if (upipe_avfilt_sub->warn_not_configured)
-            upipe_warn(upipe, "filter graph is not configured");
-        upipe_avfilt_sub->warn_not_configured = false;
-        uref_free(uref);
-        return;
+        if (unlikely(!upipe_avfilt->configured)) {
+            if (upipe_avfilt_sub->warn_not_configured)
+                upipe_warn(upipe, "filter graph is not configured");
+            upipe_avfilt_sub->warn_not_configured = false;
+            uref_free(uref);
+            return;
+        }
     }
     upipe_avfilt_sub->warn_not_configured = true;
 
