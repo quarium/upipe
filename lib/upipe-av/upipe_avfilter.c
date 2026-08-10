@@ -579,6 +579,8 @@ upipe_avfilt_sub_frame_to_uref(struct upipe *upipe, AVFrame *frame)
             UBASE_ERROR(upipe, uref_pic_set_progressive(uref, !interlaced_frame));
             if (interlaced_frame)
                 UBASE_ERROR(upipe, uref_pic_set_tff(uref, top_field_first))
+            else
+                uref_pic_delete_tff(uref);
 
             if (key_frame)
                 UBASE_ERROR(upipe, uref_pic_set_key(uref))
@@ -997,6 +999,14 @@ static int upipe_avfilt_avframe_from_uref_pic(struct upipe *upipe,
     frame->width = hsize;
     frame->height = vsize;
     frame->format = pix_fmt;
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(58, 7, 100)
+    frame->interlaced_frame = !uref_pic_check_progressive(uref);
+#else
+    if (!uref_pic_check_progressive(uref))
+        frame->flags |= AV_FRAME_FLAG_INTERLACED;
+    if (uref_pic_check_tff(uref))
+        frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
+#endif
 
     int err = upipe_av_set_frame_properties(upipe, frame, flow_def, uref);
     if (!ubase_check(err)) {
@@ -1985,6 +1995,8 @@ static void upipe_avfilt_output_frame(struct upipe *upipe,
                         uref_pic_set_progressive(uref, !interlaced_frame))
             if (interlaced_frame)
                 UBASE_ERROR(upipe, uref_pic_set_tff(uref, top_field_first))
+            else
+                uref_pic_delete_tff(uref);
 
             if (key_frame)
                 UBASE_ERROR(upipe, uref_pic_set_key(uref))
