@@ -253,6 +253,9 @@ struct upipe_ffmt {
     /** avfilter hw config device */
     char *hw_device;
 
+    /** enforce allocation attributes? */
+    bool enforce;
+
     /** public upipe structure */
     struct upipe upipe;
 };
@@ -318,6 +321,7 @@ static struct upipe *upipe_ffmt_alloc(struct upipe_mgr *mgr,
     upipe_ffmt->tonemap_desat = NULL;
     upipe_ffmt->hw_type = NULL;
     upipe_ffmt->hw_device = NULL;
+    upipe_ffmt->enforce = true;
     upipe_throw_ready(upipe);
 
     upipe_ffmt_store_flow_def_attr(upipe, flow_def);
@@ -511,6 +515,8 @@ static int upipe_ffmt_config_set(struct upipe *upipe,
                                  struct upipe_ffmt_config *config,
                                  struct uref *in, struct uref *out)
 {
+    struct upipe_ffmt *upipe_ffmt = upipe_ffmt_from_upipe(upipe);
+
     int ret = upipe_ffmt_format_set(upipe, &config->in, in);
     if (unlikely(!ubase_check(ret)))
         return ret;
@@ -566,6 +572,34 @@ static int upipe_ffmt_config_set(struct upipe *upipe,
         upipe_notice(upipe, "need interlace");
     if (config->need_tonemap)
         upipe_notice(upipe, "need tonemap hdr10 → sdr");
+
+    if (upipe_ffmt->enforce && upipe_ffmt->flow_def_wanted) {
+        struct uref *flow_def_wanted = upipe_ffmt->flow_def_wanted;
+
+        if (!config->need_deint &&
+            ubase_check(uref_pic_get_progressive(flow_def_wanted, NULL))) {
+            upipe_notice(upipe, "enforce deinterlace");
+            config->need_deint = true;
+        }
+
+        uint64_t hsize_wanted = 0;
+        uint64_t vsize_wanted = 0;
+        uref_pic_flow_get_hsize(flow_def_wanted, &hsize_wanted);
+        uref_pic_flow_get_vsize(flow_def_wanted, &vsize_wanted);
+        if (!config->need_scale && (hsize_wanted || vsize_wanted)) {
+            upipe_notice_va(upipe, "enforce scale → %" PRIu64 "x%" PRIu64,
+                            hsize_wanted, vsize_wanted);
+            config->need_scale = true;
+        }
+
+        const struct uref_pic_flow_format *wanted =
+            uref_pic_flow_get_format(flow_def_wanted);
+        if (!config->need_format && wanted) {
+            upipe_notice_va(upipe, "enforce format conversion %s",
+                            wanted->name);
+            config->need_format = true;
+        }
+    }
 
     return UBASE_ERR_NONE;
 }
