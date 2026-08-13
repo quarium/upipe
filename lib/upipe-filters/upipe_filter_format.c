@@ -899,6 +899,23 @@ static int upipe_ffmt_check_flow_format(struct upipe *upipe,
 
     flow_def_provided = uref_dup(flow_def_provided);
     flow_def_input = uref_dup(flow_def_input);
+
+    /* It is legal to have just "sound." in flow_def_wanted to avoid
+     * changing unnecessarily the sample format. */
+    const char *def = NULL;
+    char *old_def = NULL;
+    uref_flow_get_def(flow_def_provided, &def);
+    if (!ubase_ncmp(def, UREF_SOUND_FLOW_DEF))
+        old_def = strdup(def);
+    uref_attr_import(flow_def_provided, upipe_ffmt->flow_def_wanted);
+    if (old_def) {
+        def = NULL;
+        uref_flow_get_def(flow_def_provided, &def);
+        if (!def || !strcmp(def, UREF_SOUND_FLOW_DEF))
+            uref_flow_set_def(flow_def_provided, old_def);
+        free(old_def);
+    }
+
     int err = UBASE_ERR_ALLOC;
     if (likely(flow_def_provided && flow_def_input))
         err = upipe_ffmt_build(upipe, flow_def_input, flow_def_provided);
