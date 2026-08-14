@@ -702,9 +702,9 @@ static int upipe_ffmt_build(struct upipe *upipe, struct uref *flow_def,
             !upipe_ffmt_config_check(&upipe_ffmt->config, &config);
         upipe_ffmt_config_clean(&upipe_ffmt->config);
         upipe_ffmt->config = config;
-        if (!need_reconfigure) {
+        if (!need_reconfigure && upipe_ffmt->first_inner) {
             upipe_notice(upipe, "skip reconfiguration");
-            return UBASE_ERR_NONE;
+            return upipe_set_flow_def(upipe_ffmt->first_inner, flow_def);
         }
 
         upipe_notice(upipe, "configuring pipeline");
