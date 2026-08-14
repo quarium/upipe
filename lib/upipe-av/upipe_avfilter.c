@@ -262,15 +262,30 @@ static inline struct urational urational(AVRational v)
 
 /** @internal @This builds the video flow definition packet.
  *
+ * @param upipe description structure of the pipe
  * @param flow_def output flow def
  * @param buffer_ctx buffersink context
  * @param frame first frame
  * @return an error code
  */
-static int build_video_flow_def(struct uref *flow_def,
+static int build_video_flow_def(struct upipe *upipe,
+                                struct uref *flow_def,
                                 AVFilterContext *buffer_ctx,
                                 const AVFrame *frame)
 {
+    struct uref *current_flow_def = NULL;
+    if (upipe->mgr->signature == UPIPE_AVFILT_SIGNATURE) {
+        struct upipe_avfilt *upipe_avfilt = upipe_avfilt_from_upipe(upipe);
+        current_flow_def = upipe_avfilt->flow_def;
+    }
+    else if (upipe->mgr->signature == UPIPE_AVFILT_SUB_SIGNATURE) {
+        struct upipe_avfilt_sub *upipe_avfilt_sub =
+            upipe_avfilt_sub_from_upipe(upipe);
+        current_flow_def = upipe_avfilt_sub->flow_def;
+    }
+    else
+        return UBASE_ERR_INVALID;
+
     enum AVPixelFormat pix_fmt = av_buffersink_get_format(buffer_ctx);
     int width = av_buffersink_get_w(buffer_ctx);
     int height = av_buffersink_get_h(buffer_ctx);
@@ -320,12 +335,21 @@ static int build_video_flow_def(struct uref *flow_def,
     UBASE_RETURN(uref_pic_flow_set_matrix_coefficients_val(
             flow_def, matrix_coefficients))
 
+#if LIBAVUTIL_VERSION_INT < AV_VERSION_INT(58, 7, 100)
+    bool key_frame = frame->key_frame;
+#else
+    bool key_frame = frame->flags & AV_FRAME_FLAG_KEY;
+#endif
+
     AVFrameSideData *sd = av_frame_get_side_data(
         frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL);
     if (sd) {
         AVContentLightMetadata *clm = (AVContentLightMetadata *)sd->data;
         UBASE_RETURN(uref_pic_flow_set_max_cll(flow_def, clm->MaxCLL))
         UBASE_RETURN(uref_pic_flow_set_max_fall(flow_def, clm->MaxFALL))
+    } else if (!key_frame && current_flow_def) {
+        UBASE_RETURN(uref_pic_flow_copy_max_cll(flow_def, current_flow_def))
+        UBASE_RETURN(uref_pic_flow_copy_max_fall(flow_def, current_flow_def))
     }
     sd = av_frame_get_side_data(
         frame, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA);
@@ -347,6 +371,8 @@ static int build_video_flow_def(struct uref *flow_def,
                 .min_luminance = av_rescale_q(1, mdcv->min_luminance, luma),
                 .max_luminance = av_rescale_q(1, mdcv->max_luminance, luma),
             }))
+    } else if (!key_frame && current_flow_def) {
+        UBASE_RETURN(uref_pic_flow_copy_mdcv(flow_def, current_flow_def))
     }
 
     return UBASE_ERR_NONE;
@@ -354,12 +380,13 @@ static int build_video_flow_def(struct uref *flow_def,
 
 /** @internal @This builds the audio flow definition packet.
  *
+ * @param upipe description structure of the pipe
  * @param flow_def output flow def
  * @param buffer_ctx buffersink context
  * @param frame first frame
  * @return an error code
  */
-static int build_audio_flow_def(struct uref *flow_def,
+static int build_audio_flow_def(struct upipe *upipe, struct uref *flow_def,
                                 AVFilterContext *buffer_ctx,
                                 const AVFrame *frame)
 {
@@ -372,23 +399,24 @@ static int build_audio_flow_def(struct uref *flow_def,
 
 /** @internal @This builds the flow definition packet.
  *
+ * @param upipe description structure of the pipe
  * @param flow_def output flow def
  * @param buffer_ctx buffersink context
  * @param frame first frame
  * @return an error code
  */
-static int build_flow_def(struct uref *flow_def, AVFilterContext *ctx,
-                          const AVFrame *frame)
+static int build_flow_def(struct upipe *upipe, struct uref *flow_def,
+                          AVFilterContext *ctx, const AVFrame *frame)
 {
     if (!flow_def || !ctx || !frame)
         return UBASE_ERR_INVALID;
 
     switch (av_buffersink_get_type(ctx)) {
         case AVMEDIA_TYPE_VIDEO:
-            return build_video_flow_def(flow_def, ctx, frame);
+            return build_video_flow_def(upipe, flow_def, ctx, frame);
 
         case AVMEDIA_TYPE_AUDIO:
-            return build_audio_flow_def(flow_def, ctx, frame);
+            return build_audio_flow_def(upipe, flow_def, ctx, frame);
 
         default:
             break;
@@ -416,7 +444,7 @@ static struct uref *upipe_avfilt_sub_build_flow_def(struct upipe *upipe,
     if (unlikely(flow_def == NULL))
         return NULL;
 
-    int ret = build_flow_def(flow_def, ctx, frame);
+    int ret = build_flow_def(upipe, flow_def, ctx, frame);
     if (unlikely(!ubase_check(ret))) {
         uref_free(flow_def);
         upipe_err_va(upipe, "unknown buffersink type");
@@ -1857,7 +1885,7 @@ static struct uref *upipe_avfilt_build_flow_def(struct upipe *upipe,
     if (unlikely(flow_def == NULL))
         return NULL;
 
-    int ret = build_flow_def(flow_def, ctx, frame);
+    int ret = build_flow_def(upipe, flow_def, ctx, frame);
     if (unlikely(!ubase_check(ret))) {
         uref_free(flow_def);
         upipe_err_va(upipe, "unknown buffersink type");
