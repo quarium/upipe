@@ -766,6 +766,7 @@ static void upipe_x265_close(struct upipe *upipe)
 
         upipe_notice(upipe, "closing encoder");
         upipe_x265->api->encoder_close(upipe_x265->encoder);
+        upipe_x265->encoder = NULL;
     }
 }
 
