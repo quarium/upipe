@@ -971,6 +971,10 @@ static int upipe_ffmt_build(struct upipe *upipe, struct uref *flow_def,
                         add_option("out_primaries=%s", color_primaries);
                     if (color_transfer)
                         add_option("out_transfer=%s", color_transfer);
+                    if (need_format) {
+                        add_filter("format");
+                        add_option("%s", pix_fmt);
+                    }
                 }
                 if (need_deint) {
                     add_filter(deinterlace_filter);
