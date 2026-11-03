@@ -40,6 +40,8 @@ struct uref_pic_flow_format {
     const char *name;
     /** macro pixel */
     uint8_t macropixel;
+    /** components */
+    const struct uref_pic_flow_format *planar;
     /** number of planes */
     uint8_t nb_planes;
     /** array of plane descriptions */
@@ -177,16 +179,26 @@ uref_pic_flow_alloc_format(struct uref_mgr *mgr,
 #define UREF_PIC_FLOW_FORMAT_NB_PLANES(...)                                 \
     (sizeof (__VA_ARGS__) / sizeof ((__VA_ARGS__)[0]))
 
+#define UREF_PIC_FLOW_FORMAT_PACKED(Name, Planar, MacroPixel, ...)  \
+static const struct uref_pic_flow_format uref_pic_flow_format_##Name = {    \
+    .name = #Name,                                                          \
+    .macropixel = MacroPixel,                                               \
+    .planar = &uref_pic_flow_format_##Planar,                               \
+    .nb_planes = UREF_PIC_FLOW_FORMAT_NB_PLANES(                            \
+        (struct uref_pic_flow_format_plane []){ __VA_ARGS__ }),             \
+    .planes = { __VA_ARGS__ },                                              \
+}
+
 #define UREF_PIC_FLOW_FORMAT(Name, MacroPixel, ...)                         \
 static const struct uref_pic_flow_format uref_pic_flow_format_##Name = {    \
     .name = #Name,                                                          \
     .macropixel = MacroPixel,                                               \
+    .planar = NULL,                                                         \
     .nb_planes = UREF_PIC_FLOW_FORMAT_NB_PLANES(                            \
         (struct uref_pic_flow_format_plane []){ __VA_ARGS__ }),             \
-    .planes = {                                                             \
-        __VA_ARGS__                                                         \
-    },                                                                      \
+    .planes = { __VA_ARGS__ },                                              \
 }
+
 
 /** @This is the description of the yuva420p format. */
 UREF_PIC_FLOW_FORMAT(yuva420p, 1,
@@ -423,40 +435,40 @@ UREF_PIC_FLOW_FORMAT(rgba64le, 1, { 1, 1, 8, "r16g16b16a16l", 64 });
 UREF_PIC_FLOW_FORMAT(rgba64be, 1, { 1, 1, 8, "r16g16b16a16", 64 });
 
 /** @This is the description of the nv12 format. */
-UREF_PIC_FLOW_FORMAT(nv12, 1,
+UREF_PIC_FLOW_FORMAT_PACKED(nv12, yuv420p, 1,
                      { 1, 1, 1, "y8", 8 },
                      { 2, 2, 2, "u8v8", 16 });
 
 /** @This is the description of the nv16 format. */
-UREF_PIC_FLOW_FORMAT(nv16, 1,
+UREF_PIC_FLOW_FORMAT_PACKED(nv16, yuv422p, 1,
                      { 1, 1, 1, "y8", 8 },
                      { 2, 1, 2, "u8v8", 16 });
 
+/** @This is the description of the nv24 format. */
+UREF_PIC_FLOW_FORMAT_PACKED(nv24, yuv444p, 1,
+                     { 1, 1, 1, "y8", 8 },
+                     { 1, 1, 2, "u8v8", 16 });
+
+/** @This is the description of the p010le format. */
+UREF_PIC_FLOW_FORMAT_PACKED(p010le, yuv420p10le, 1,
+                     { 1, 1, 2, "y10l", 10 },
+                     { 2, 2, 4, "u10v10l", 20 });
+
 /** @This is the description of the nv20 format. */
-UREF_PIC_FLOW_FORMAT(nv20, 1,
+UREF_PIC_FLOW_FORMAT_PACKED(nv20, yuv422p10le, 1,
                      { 1, 1, 2, "y10l", 10 },
                      { 2, 1, 4, "u10v10l", 20 });
 
-/** @This is the description of the nv24 format. */
-UREF_PIC_FLOW_FORMAT(nv24, 1,
-                     { 1, 1, 1, "y8", 8 },
-                     { 1, 1, 2, "u8v8", 16 });
+/** @This is the description of the p010le format. */
+UREF_PIC_FLOW_FORMAT_PACKED(p410le, yuv444p10le, 1,
+                     { 1, 1, 2, "y10l", 10 },
+                     { 1, 1, 4, "u10v10l", 20 });
 
 /** @This is the description of the gbrp format. */
 UREF_PIC_FLOW_FORMAT(gbrp, 1,
                      { 1, 1, 1, "g8", 8 },
                      { 1, 1, 1, "b8", 8 },
                      { 1, 1, 1, "r8", 8 });
-
-/** @This is the description of the p010le format. */
-UREF_PIC_FLOW_FORMAT(p010le, 1,
-                     { 1, 1, 2, "y10l", 10 },
-                     { 2, 2, 4, "u10v10l", 20 });
-
-/** @This is the description of the p010le format. */
-UREF_PIC_FLOW_FORMAT(p410le, 1,
-                     { 1, 1, 2, "y10l", 10 },
-                     { 1, 1, 4, "u10v10l", 20 });
 
 #define UREF_PIC_FLOW_FORMAT_FOREACH(Do, ...) \
     Do(yuva420p, ## __VA_ARGS__) \

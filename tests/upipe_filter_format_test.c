@@ -70,6 +70,7 @@ static void test_format(void);
 static void test_scale_format(void);
 static void test_reconfigure(void);
 static void test_hwupload(void);
+static void test_component(void);
 
 typedef void (*test_func)(void);
 
@@ -89,6 +90,7 @@ static const struct test tests[] = {
     { "scale_format",   test_scale_format },
     { "reconfigure",    test_reconfigure },
     { "hwupload",       test_hwupload },
+    { "component",      test_component },
 };
 struct sink {
     struct urefcount urefcount;
@@ -147,6 +149,13 @@ static void sink_input(struct upipe *upipe, struct uref *uref,
     uref_pic_size(uref, &hsize, &vsize, NULL);
     upipe_info_va(upipe, "received buffer %" PRIu64 "/%" PRIu64,
                   sink->count + 1, sink->expected);
+    uint8_t planes = 0;
+    const char *chroma;
+    uref_pic_foreach_plane(uref, chroma)
+        planes++;
+    uint8_t wanted_planes = 0;
+    uref_pic_flow_get_planes(sink->flow_def, &wanted_planes);
+    assert(!wanted_planes || wanted_planes == planes);
     assert(hsize == sink->hsize && vsize == sink->vsize);
     sink->count++;
     uref_free(uref);
@@ -158,10 +167,17 @@ static int sink_control(struct upipe *upipe, int cmd, va_list args)
 
     switch (cmd) {
         case UPIPE_SET_FLOW_DEF: {
+            uint8_t macropixel = 0;
+            uint8_t planes = 0;
             struct uref *flow_def = va_arg(args, struct uref *);
             upipe_info(upipe, "output flow");
             uref_dump_info(flow_def, upipe->uprobe);
-            assert(uref_pic_flow_compare_format(flow_def, sink->flow_def));
+            if (ubase_check(uref_pic_flow_get_macropixel(sink->flow_def,
+                                                         &macropixel)) &&
+                ubase_check(
+                    uref_pic_flow_get_planes(sink->flow_def, &planes)) &&
+                macropixel && planes)
+                assert(uref_pic_flow_compare_format(flow_def, sink->flow_def));
             assert(!uref_pic_flow_cmp_hsize(flow_def, sink->flow_def));
             assert(!uref_pic_flow_cmp_vsize(flow_def, sink->flow_def));
             assert(uref_pic_check_progressive(flow_def) ==
@@ -682,6 +698,75 @@ static void test_hwupload(void)
     uref_free(flow_def);
 
     upipe_release(ffmt);
+}
+
+/* different format, same size → sws format conversion */
+static void test_component_run(struct upipe_mgr *avfilt_mgr,
+                               struct upipe_mgr *deint_mgr,
+                               struct upipe_mgr *interlace_mgr,
+                               struct upipe_mgr *sws_mgr)
+{
+    const struct uref_pic_flow_format *components[] = {
+        &uref_pic_flow_format_yuv420p,
+        &uref_pic_flow_format_yuv422p,
+        &uref_pic_flow_format_yuv444p,
+        &uref_pic_flow_format_yuv420p10le,
+        &uref_pic_flow_format_yuv422p10le,
+        &uref_pic_flow_format_yuv444p10le,
+    };
+    const struct uref_pic_flow_format *formats[] = {
+        &uref_pic_flow_format_yuv420p,
+        &uref_pic_flow_format_yuv422p,
+        &uref_pic_flow_format_yuv444p,
+        &uref_pic_flow_format_nv12,
+        &uref_pic_flow_format_nv16,
+        &uref_pic_flow_format_nv24,
+        &uref_pic_flow_format_yuv420p10le,
+        &uref_pic_flow_format_yuv422p10le,
+        &uref_pic_flow_format_yuv444p10le,
+        &uref_pic_flow_format_p010le,
+        //&uref_pic_flow_format_nv20,
+        //&uref_pic_flow_format_p410le,
+    };
+
+    for (unsigned i = 0; i < UBASE_ARRAY_SIZE(components); i++) {
+        const struct uref_pic_flow_format *out_format = components[i];
+
+        struct uref *flow_def_wanted =
+            uref_pic_flow_alloc_format(uref_mgr, out_format);
+        assert(flow_def_wanted);
+        ubase_assert(uref_pic_flow_delete_planes(flow_def_wanted));
+        ubase_assert(uref_pic_flow_set_components(flow_def_wanted, 3));
+        ubase_assert(uref_pic_flow_set_hsize(flow_def_wanted, 32));
+        ubase_assert(uref_pic_flow_set_vsize(flow_def_wanted, 32));
+        ubase_assert(
+            uref_test_set_count(flow_def_wanted, UBASE_ARRAY_SIZE(formats) * NB_FRAMES));
+        struct upipe *ffmt = build_pipeline(
+            avfilt_mgr, deint_mgr, interlace_mgr, sws_mgr, flow_def_wanted);
+        uref_free(flow_def_wanted);
+
+        for (unsigned j = 0; j < UBASE_ARRAY_SIZE(formats); j++) {
+            const struct uref_pic_flow_format *format = formats[j];
+            uprobe_notice_va(logger, NULL, "  %s → %s", format->name, out_format->name);
+            struct uref *flow_def =
+                uref_pic_flow_alloc_format(uref_mgr, format);
+            assert(flow_def);
+            ubase_assert(uref_pic_flow_set_hsize(flow_def, 32));
+            ubase_assert(uref_pic_flow_set_vsize(flow_def, 32));
+            send_frames(ffmt, flow_def);
+            uref_free(flow_def);
+        }
+
+        upipe_release(ffmt);
+    }
+}
+
+static void test_component(void)
+{
+    if (avfilt_mgr)
+        test_component_run(avfilt_mgr, NULL, NULL, NULL);
+    if (sws_mgr)
+        test_component_run(NULL, NULL, NULL, sws_mgr);
 }
 
 int main(int argc, char *argv[])
