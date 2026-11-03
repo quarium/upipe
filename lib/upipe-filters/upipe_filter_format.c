@@ -78,8 +78,14 @@ struct upipe_ffmt_format {
     bool hw;
     /** bit depth */
     int bit_depth;
+    /** format description */
+    const struct uref_pic_flow_format *format;
+    /** components description */
+    const struct uref_pic_flow_format *planar;
     /** pixel format name */
     const char *pix_fmt;
+    /** planar pixel format name */
+    const char *pix_fmt_planar;
 };
 
 /** @internal @This initializes a upipe_ffmt_format structure.
@@ -491,17 +497,33 @@ static int upipe_ffmt_format_set(struct upipe *upipe,
     format->tff = uref_pic_check_tff(flow_def);
     format->bit_depth = 0;
     uref_pic_flow_get_bit_depth(flow_def, &format->bit_depth);
+    format->format = uref_pic_flow_get_format(flow_def);
     format->pix_fmt = "unknown";
-    if (ffmt_mgr->avfilter_mgr) {
+    uint8_t planes = 0;
+    if (!ubase_check(uref_pic_flow_get_planes(format->flow_def, &planes))) {
+        format->pix_fmt = NULL;
+    } else if (ffmt_mgr->avfilter_mgr) {
         upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr, flow_def,
                                          &format->pix_fmt, true);
     } else {
-        const struct uref_pic_flow_format *flow_format =
-            uref_pic_flow_get_format(flow_def);
-        if (likely(flow_format))
-            format->pix_fmt = flow_format->name;
+        if (likely(format->format))
+            format->pix_fmt = format->format->name;
     }
-
+    uint8_t components = 0;
+    if (ubase_check(uref_pic_flow_get_components(flow_def, &components))) {
+        struct uref *flow_def_dup = uref_dup(flow_def);
+        if (unlikely(!flow_def_dup))
+            return UBASE_ERR_ALLOC;
+        uref_pic_flow_set_planes(flow_def_dup, components);
+        format->planar = uref_pic_flow_get_format(flow_def_dup);
+        if (ffmt_mgr->avfilter_mgr)
+            upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
+                                                flow_def_dup,
+                                                &format->pix_fmt_planar, true);
+        else if (likely(format->planar))
+            format->pix_fmt_planar = format->planar->name;
+        uref_free(flow_def_dup);
+    }
     return UBASE_ERR_NONE;
 }
 
@@ -541,8 +563,20 @@ static int upipe_ffmt_config_set(struct upipe *upipe,
     config->need_scale = config->in.hsize != config->out.hsize ||
                          config->in.vsize != config->out.vsize;
     config->need_range = config->in.fullrange != config->out.fullrange;
-    config->need_format = !uref_pic_flow_compare_format(config->in.flow_def,
-                                                        config->out.flow_def);
+    config->need_format = false;
+    if (config->out.pix_fmt) {
+        config->need_format = !uref_pic_flow_compare_format(
+            config->in.flow_def, config->out.flow_def);
+    } else if (config->out.planar && config->out.pix_fmt_planar) {
+        if (config->out.planar != config->in.format &&
+            (!config->in.format->planar ||
+             config->out.planar != config->in.format->planar)) {
+            config->need_format = true;
+            config->out.format = config->out.planar;
+            uref_pic_flow_set_format(out, config->out.format);
+        }
+        config->out.pix_fmt = config->out.pix_fmt_planar;
+    }
     config->need_hw_transfer = (config->in.hw && !config->out.hw) ||
                                (!config->in.hw && config->out.hw);
     config->need_derive = config->in.surface_type == AV_VAAPI &&
@@ -761,10 +795,6 @@ static int upipe_ffmt_build(struct upipe *upipe, struct uref *flow_def,
         struct upipe *last_inner = NULL;
 
         if (use_avfilter) {
-            const char *pix_fmt = NULL;
-            upipe_avfilt_mgr_get_pixfmt_name(ffmt_mgr->avfilter_mgr,
-                                             flow_def_dup, &pix_fmt, false);
-
             int val;
 
             const char *color_matrix = NULL;
@@ -973,7 +1003,7 @@ static int upipe_ffmt_build(struct upipe *upipe, struct uref *flow_def,
                         add_option("out_transfer=%s", color_transfer);
                     if (need_format) {
                         add_filter("format");
-                        add_option("%s", pix_fmt);
+                        add_option("%s", out->pix_fmt);
                     }
                 }
                 if (need_deint) {
@@ -987,11 +1017,12 @@ static int upipe_ffmt_build(struct upipe *upipe, struct uref *flow_def,
                 add_option("mode=read+direct");
                 add_filter("format");
                 add_option("%s", pix_fmt_semiplanar_out);
-                if (pix_fmt != NULL && strcmp(pix_fmt, pix_fmt_semiplanar_out)) {
+                if (out->pix_fmt != NULL &&
+                    strcmp(out->pix_fmt, pix_fmt_semiplanar_out)) {
                     add_filter("scale");
                     add_option("interl=-1");
                     add_filter("format");
-                    add_option("%s", pix_fmt);
+                    add_option("%s", out->pix_fmt);
                 }
             }
 
