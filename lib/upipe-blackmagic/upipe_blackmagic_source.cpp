@@ -259,8 +259,6 @@ struct upipe_bmd_src {
     int64_t timestamp_offset;
     /** highest Upipe timestamp given to a frame */
     uint64_t timestamp_highest;
-    /** last cr sys */
-    uint64_t last_cr_sys;
     /** current frame rate */
     struct urational fps;
     /** true for progressive frames - for use by the private thread */
@@ -692,7 +690,6 @@ static struct upipe *_upipe_bmd_src_alloc(struct upipe_mgr *mgr,
     upipe_bmd_src->progressive = false;
     upipe_bmd_src->timestamp_offset = 0;
     upipe_bmd_src->timestamp_highest = BMD_CLOCK_MIN;
-    upipe_bmd_src->last_cr_sys = UINT64_MAX;
     upipe_bmd_src->fps.num = 25;
     upipe_bmd_src->fps.den = 1;
     upipe_bmd_src->tff = true;
@@ -756,40 +753,26 @@ static void upipe_bmd_src_work(struct upipe *upipe, struct upump *upump)
             continue;
         }
 
-        uint64_t cr_sys = UINT64_MAX;
-        uint64_t cr_sys_delta = 0;
-        if (likely(ubase_check(uref_clock_get_cr_sys(uref, &cr_sys))) &&
-                upipe_bmd_src->last_cr_sys != UINT64_MAX &&
-                cr_sys >= upipe_bmd_src->last_cr_sys)
-            cr_sys_delta = cr_sys - upipe_bmd_src->last_cr_sys;
-
         uint64_t pts_orig;
         uint64_t pts_prog = UINT64_MAX;
+        int discontinuity = 0;
         if (likely(ubase_check(uref_clock_get_pts_orig(uref, &pts_orig)))) {
             pts_prog = pts_orig + upipe_bmd_src->timestamp_offset;
 
             if (type == UPIPE_BMD_SRC_PIC) {
                 if (unlikely(pts_prog <= upipe_bmd_src->timestamp_highest)) {
-                    uint64_t old = pts_prog;
-                    uint64_t highest = upipe_bmd_src->timestamp_highest;
-
-                    pts_prog = upipe_bmd_src->timestamp_highest + cr_sys_delta;
-                    upipe_warn_va(upipe, "timestamp is in the past, "
-                            "resetting %" PRIu64 " to %" PRIu64 " "
-                            "highest %" PRIu64 " "
-                            "orig %" PRIu64 " "
-                            "delta %" PRIu64 " ",
-                            old / (UCLOCK_FREQ / 1000),
-                            pts_prog / (UCLOCK_FREQ / 1000),
-                            highest / (UCLOCK_FREQ / 1000),
-                            pts_orig / (UCLOCK_FREQ / 1000),
-                            cr_sys_delta / (UCLOCK_FREQ / 1000));
-                    upipe_bmd_src->timestamp_offset = pts_prog - pts_orig;
+                    upipe_warn_va(
+                        upipe, "timestamp discontinuity %.2f ms",
+                        (upipe_bmd_src->timestamp_highest - pts_prog) * 1000. /
+                            UCLOCK_FREQ);
+                    discontinuity = 1;
+                    upipe_bmd_src->timestamp_offset = 0;
+                    upipe_bmd_src->timestamp_highest = 0;
+                    pts_prog = pts_orig + upipe_bmd_src->timestamp_offset;
                 }
                 if (pts_prog > upipe_bmd_src->timestamp_highest)
                     upipe_bmd_src->timestamp_highest = pts_prog;
                 uref_clock_set_pts_prog(uref, pts_prog);
-                upipe_bmd_src->last_cr_sys = cr_sys;
             }
             else
                 uref_clock_set_pts_prog(uref, upipe_bmd_src->timestamp_highest);
@@ -797,7 +780,7 @@ static void upipe_bmd_src_work(struct upipe *upipe, struct upump *upump)
 
         if (type == UPIPE_BMD_SRC_PIC || type == UPIPE_BMD_SRC_PIC_NO_INPUT) {
             if (likely(pts_prog != UINT64_MAX))
-                upipe_throw_clock_ref(subpipe, uref, pts_prog, 0);
+                upipe_throw_clock_ref(subpipe, uref, pts_prog, discontinuity);
         }
         upipe_throw_clock_ts(subpipe, uref);
         upipe_bmd_src_output_output(subpipe, uref, &upipe_bmd_src->upump);
